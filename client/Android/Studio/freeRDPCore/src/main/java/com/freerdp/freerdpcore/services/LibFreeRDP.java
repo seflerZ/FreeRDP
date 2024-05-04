@@ -22,6 +22,7 @@ import com.freerdp.freerdpcore.domain.BookmarkBase;
 import com.freerdp.freerdpcore.domain.ManualBookmark;
 import com.freerdp.freerdpcore.presentation.ApplicationSettingsActivity;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -293,28 +294,23 @@ public class LibFreeRDP
 		}
 
 		BookmarkBase.PerformanceFlags flags = bookmark.getActivePerformanceFlags();
-		if (flags.getRemoteFX())
-		{
-			args.add("/rfx");
-		}
-
-		if (flags.getGfx())
-		{
+//		if (mHasH264)
+//		{
+//			args.add("/gfx-h264:AVC444");
+//		} else {
 			args.add("/gfx");
-		}
+//		}
 
-		if (flags.getH264() && mHasH264)
-		{
-			args.add("/gfx:AVC444");
-		}
+		args.add("/rfx");
 
-		args.add(addFlag("wallpaper", flags.getWallpaper()));
-		args.add(addFlag("window-drag", flags.getFullWindowDrag()));
-		args.add(addFlag("menu-anims", flags.getMenuAnimations()));
-		args.add(addFlag("themes", flags.getTheming()));
-		args.add(addFlag("fonts", flags.getFontSmoothing()));
-		args.add(addFlag("aero", flags.getDesktopComposition()));
-		args.add(addFlag("glyph-cache", false));
+		args.add(addFlag("wallpaper", true));
+		args.add(addFlag("window-drag", true));
+		args.add(addFlag("menu-anims", true));
+		args.add(addFlag("themes", true));
+		args.add(addFlag("fonts", true));
+		args.add(addFlag("aero", true));
+		args.add(addFlag("glyph-cache", true));
+		args.add(addFlag("relax-order-checks", true));
 
 		if (!advanced.getRemoteProgram().isEmpty())
 		{
@@ -332,8 +328,11 @@ public class LibFreeRDP
 
 		if (advanced.getRedirectSDCard())
 		{
-			String path = android.os.Environment.getExternalStorageDirectory().getPath();
-			args.add("/drive:sdcard," + path);
+			File dir = context.getExternalFilesDir(null);
+			if (dir != null) {
+				String path = dir.getPath();
+				args.add("/drive:sdcard," + path);
+			}
 		}
 
 		args.add("/clipboard");
@@ -378,7 +377,7 @@ public class LibFreeRDP
 			args.add("/microphone");
 		}
 
-		args.add("/cert-ignore");
+		//args.add("/cert-ignore");
 		args.add("/log-level:" + debug.getDebugLevel());
 		String[] arrayArgs = args.toArray(new String[args.size()]);
 		return freerdp_parse_arguments(inst, arrayArgs);
@@ -393,7 +392,7 @@ public class LibFreeRDP
 
 		// Now we only support Software GDI
 		args.add(TAG);
-		args.add("/gdi:sw");
+		args.add("/gdi:hw");
 
 		final String clientName = ApplicationSettingsActivity.getClientName(context);
 		if (!clientName.isEmpty())
