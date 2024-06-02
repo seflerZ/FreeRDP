@@ -575,7 +575,7 @@ disconnect:
 		wMessageQueue* input_queue =
 		    freerdp_get_message_queue(instance, FREERDP_INPUT_MESSAGE_QUEUE);
 		MessageQueue_PostQuit(input_queue, 0);
-		WaitForSingleObject(inputThread, INFINITE);
+		WaitForSingleObject(inputThread, 100);
 		CloseHandle(inputThread);
 	}
 
@@ -1088,6 +1088,11 @@ static JNINativeMethod methods[] = {
 	{ "freerdp_has_h264", "()Z", &jni_freerdp_has_h264 }
 };
 
+static void signal_handler(int signal, siginfo_t *info, void *reserved) {
+    WLog_FATAL(TAG, "Signal handler called with signal: %d,", signal);
+    kill(getpid(), SIGKILL);
+}
+
 static jclass gJavaActivityClass = NULL;
 
 jint JNI_OnLoad(JavaVM* vm, void* reserved)
@@ -1123,6 +1128,18 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved)
 	/* create global reference for class */
 	gJavaActivityClass = (*env)->NewGlobalRef(env, activityClass);
 	g_JavaVm = vm;
+
+    struct sigaction handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.sa_sigaction = signal_handler;
+    handler.sa_flags = SA_SIGINFO;
+    sigaction(SIGILL, &handler, NULL);
+    sigaction(SIGABRT, &handler, NULL);
+    sigaction(SIGBUS, &handler, NULL);
+    sigaction(SIGFPE, &handler, NULL);
+    sigaction(SIGSEGV, &handler, NULL);
+    sigaction(SIGSTKFLT, &handler, NULL);
+
 	return init_callback_environment(vm, env);
 }
 
