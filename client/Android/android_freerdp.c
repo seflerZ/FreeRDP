@@ -243,10 +243,22 @@ static BOOL android_pre_connect(freerdp* instance)
 
 static BOOL android_Pointer_New(rdpContext* context, rdpPointer* pointer)
 {
+    int size;
+
 	if (!context || !pointer || !context->gdi)
 		return FALSE;
 
-	return TRUE;
+    size = pointer->height * pointer->width * GetBytesPerPixel(PIXEL_FORMAT_RGBA32);
+    BYTE* pdata = (BYTE*)_aligned_malloc(size, 16);
+    rdpGdi* gdi = context->gdi;
+    freerdp_image_copy_from_pointer_data(pdata, PIXEL_FORMAT_RGBA32, 0, 0, 0,
+                                         pointer->width, pointer->height,
+                                         pointer->xorMaskData, pointer->lengthXorMask,
+                                         pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp, &gdi->palette);
+
+
+    freerdp_callback("OnPointerNew", "([B,I)V", pdata, size);
+    return TRUE;
 }
 
 static void android_Pointer_Free(rdpContext* context, rdpPointer* pointer)
