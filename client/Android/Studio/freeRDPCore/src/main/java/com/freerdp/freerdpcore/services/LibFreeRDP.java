@@ -296,9 +296,9 @@ public class LibFreeRDP
 		BookmarkBase.PerformanceFlags flags = bookmark.getActivePerformanceFlags();
 //		if (mHasH264)
 //		{
-//			args.add("/gfx-h264:AVC444");
+			args.add("/gfx-h264:AVC444");
 //		} else {
-			args.add("/gfx");
+//			args.add("/gfx");
 //		}
 
 		args.add("/rfx");
@@ -369,7 +369,7 @@ public class LibFreeRDP
 		args.add("/audio-mode:" + String.valueOf(advanced.getRedirectSound()));
 		if (advanced.getRedirectSound() == 0)
 		{
-			args.add("/sound");
+			args.add("/sound:latency:80");
 		}
 
 		if (advanced.getRedirectMicrophone())
@@ -502,6 +502,12 @@ public class LibFreeRDP
 	{
 		if (listener != null)
 			listener.OnPreConnect(inst);
+	}
+
+	private static void OnPointerNew(byte[] pointerBitmap, int size) {
+		if (size < 0) {
+			;
+		}
 	}
 
 	private static void OnDisconnecting(long inst)
