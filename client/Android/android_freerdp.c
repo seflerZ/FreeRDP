@@ -249,15 +249,15 @@ static BOOL android_Pointer_New(rdpContext* context, rdpPointer* pointer)
 		return FALSE;
 
     size = pointer->height * pointer->width * GetBytesPerPixel(PIXEL_FORMAT_RGBA32);
-    BYTE* pdata = (BYTE*)_aligned_malloc(size, 16);
-    rdpGdi* gdi = context->gdi;
-    freerdp_image_copy_from_pointer_data(pdata, PIXEL_FORMAT_RGBA32, 0, 0, 0,
-                                         pointer->width, pointer->height,
-                                         pointer->xorMaskData, pointer->lengthXorMask,
-                                         pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp, &gdi->palette);
+//    BYTE* pdata = (BYTE*)_aligned_malloc(size, 2);
+//    rdpGdi* gdi = context->gdi;
+//    freerdp_image_copy_from_pointer_data(pdata, PIXEL_FORMAT_RGBA32, 0, 0, 0,
+//                                         pointer->width, pointer->height,
+//                                         pointer->xorMaskData, pointer->lengthXorMask,
+//                                         pointer->andMaskData, pointer->lengthAndMask, pointer->xorBpp, &gdi->palette);
 
 
-    freerdp_callback("OnPointerNew", "([B,I)V", pdata, size);
+    freerdp_callback("OnPointerNew", "([B,I)V", 0, size);
     return TRUE;
 }
 
