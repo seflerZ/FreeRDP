@@ -261,7 +261,9 @@ static BOOL android_Pointer_New(rdpContext* context, rdpPointer* pointer)
                                          pointer->xorBpp,
                                          &context->gdi->palette);
 
-    freerdp_callback("OnPointerNew", "([BI)V", pdata, size);
+    freerdp_callback("OnPointerNew", "(I)V", size);
+
+    _aligned_free(pdata);
 
     return TRUE;
 }
