@@ -504,7 +504,7 @@ public class LibFreeRDP
 			listener.OnPreConnect(inst);
 	}
 
-	private static void OnPointerNew(int size) {
+	private static void OnPointerNew(byte[] pdata, int size) {
 		if (size < 0) {
 			;
 		}

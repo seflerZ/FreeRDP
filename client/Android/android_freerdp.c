@@ -244,13 +244,14 @@ static BOOL android_pre_connect(freerdp* instance)
 static BOOL android_Pointer_New(rdpContext* context, rdpPointer* pointer)
 {
     int size;
+    JNIEnv* env;
 
 	if (!context || !pointer || !context->gdi)
 		return FALSE;
 
     size = pointer->height * pointer->width * GetBytesPerPixel(PIXEL_FORMAT_BGRA32);
-    BYTE* pdata = (BYTE*)_aligned_malloc(size, 16);
 
+    BYTE* pdata = (BYTE*)_aligned_malloc(size, 16);
     if (!pdata)
         return FALSE;
 
@@ -261,7 +262,13 @@ static BOOL android_Pointer_New(rdpContext* context, rdpPointer* pointer)
                                          pointer->xorBpp,
                                          &context->gdi->palette);
 
-    freerdp_callback("OnPointerNew", "(I)V", size);
+    jboolean attached = jni_attach_thread(&env);
+    jbyteArray array= (*env)->NewByteArray(env, size);
+
+    (*env)->SetByteArrayRegion(env, array, 0, size, pdata);
+
+
+    freerdp_callback("OnPointerNew", "([BI)V", array, size);
 
     _aligned_free(pdata);
 
