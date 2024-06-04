@@ -285,7 +285,7 @@ static BOOL android_Pointer_Set(rdpContext* context, const rdpPointer* pointer)
 	if (!context)
 		return FALSE;
 
-    android_Pointer_New(rdpContext* context, rdpPointer* pointer)
+    android_Pointer_New(context, pointer)
 
 	return TRUE;
 }
