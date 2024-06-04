@@ -268,7 +268,7 @@ static BOOL android_Pointer_New(rdpContext* context, rdpPointer* pointer)
     (*env)->SetByteArrayRegion(env, array, 0, size, pdata);
 
 
-    freerdp_callback("OnPointerNew", "([BI)V", array, size);
+    freerdp_callback("OnPointerNew", "([BII)V", array, pointer->width, pointer->height);
 
     _aligned_free(pdata);
 
