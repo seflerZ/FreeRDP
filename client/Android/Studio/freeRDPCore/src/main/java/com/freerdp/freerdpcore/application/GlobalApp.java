@@ -195,9 +195,13 @@ public class GlobalApp extends Application implements LibFreeRDP.EventListener
 		sendRDPNotification(FREERDP_EVENT_DISCONNECTED, instance);
 	}
 
-	public void OnPointerNew(byte[] pdata, int width, int height)
-	{
-		Bitmap pBitmap = BitmapFactory.decodeByteArray(pdata, 0, pdata.length);
+	public void OnPointerNew(byte[] pdata, int width, int height) {
+
+	}
+
+	@Override
+	public void OnPointerUpdate(byte[] pdata, int width, int height) {
+
 	}
 
 	// TimerTask for disconnecting sessions after screen was turned off
