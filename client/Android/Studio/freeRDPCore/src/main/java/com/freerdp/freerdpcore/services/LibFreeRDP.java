@@ -505,9 +505,8 @@ public class LibFreeRDP
 	}
 
 	private static void OnPointerNew(byte[] pdata, int width, int height) {
-		if (width < 0) {
-			;
-		}
+		if (listener != null)
+			listener.OnPointerNew(pdata, width, height);
 	}
 
 	private static void OnDisconnecting(long inst)
@@ -634,6 +633,8 @@ public class LibFreeRDP
 		void OnDisconnecting(long instance);
 
 		void OnDisconnected(long instance);
+
+		void OnPointerNew(byte[] pdata, int width, int height);
 	}
 
 	public static interface UIEventListener {

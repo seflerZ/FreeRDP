@@ -14,6 +14,8 @@ import android.app.Application;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.util.Log;
 
@@ -191,6 +193,11 @@ public class GlobalApp extends Application implements LibFreeRDP.EventListener
 	{
 		Log.v(TAG, "OnDisconnected");
 		sendRDPNotification(FREERDP_EVENT_DISCONNECTED, instance);
+	}
+
+	public void OnPointerNew(byte[] pdata, int width, int height)
+	{
+		Bitmap pBitmap = BitmapFactory.decodeByteArray(pdata, 0, pdata.length);
 	}
 
 	// TimerTask for disconnecting sessions after screen was turned off
