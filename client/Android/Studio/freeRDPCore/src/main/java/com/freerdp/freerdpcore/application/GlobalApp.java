@@ -200,6 +200,11 @@ public class GlobalApp extends Application implements LibFreeRDP.EventListener
 	}
 
 	@Override
+	public void OnPointerPos(int x, int y) {
+
+	}
+
+	@Override
 	public void OnPointerUpdate(byte[] pdata, int width, int height) {
 
 	}
