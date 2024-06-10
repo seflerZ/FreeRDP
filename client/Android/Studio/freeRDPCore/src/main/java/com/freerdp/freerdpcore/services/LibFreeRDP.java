@@ -637,6 +637,8 @@ public class LibFreeRDP
 		void OnPointerNew(byte[] pdata, int width, int height);
 
 		void OnPointerUpdate(byte[] pdata, int width, int height);
+
+		void OnPointerPos(int x, int y);
 	}
 
 	public static interface UIEventListener {
