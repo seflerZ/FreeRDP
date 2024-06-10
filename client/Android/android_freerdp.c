@@ -295,6 +295,8 @@ static BOOL android_Pointer_SetPosition(rdpContext* context, UINT32 x, UINT32 y)
 	if (!context)
 		return FALSE;
 
+    freerdp_callback("OnPointerPos", "(II)V", x, y);
+
 	return TRUE;
 }
 
