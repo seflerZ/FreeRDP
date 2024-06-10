@@ -296,7 +296,7 @@ public class LibFreeRDP
 		BookmarkBase.PerformanceFlags flags = bookmark.getActivePerformanceFlags();
 //		if (mHasH264)
 //		{
-			args.add("/gfx-h264:AVC444");
+		args.add("/gfx-h264:AVC444");
 //		} else {
 //			args.add("/gfx");
 //		}
@@ -311,6 +311,7 @@ public class LibFreeRDP
 		args.add(addFlag("aero", true));
 		args.add(addFlag("glyph-cache", true));
 		args.add(addFlag("relax-order-checks", true));
+		args.add(addFlag("gfx-progressive", true));
 
 		if (!advanced.getRemoteProgram().isEmpty())
 		{
