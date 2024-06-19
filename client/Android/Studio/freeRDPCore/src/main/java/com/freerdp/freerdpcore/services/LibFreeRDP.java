@@ -505,9 +505,9 @@ public class LibFreeRDP
 			listener.OnPreConnect(inst);
 	}
 
-	private static void OnPointerNew(byte[] pdata, int width, int height) {
+	private static void OnPointerNew(byte[] pdata, int width, int height, int xPos, int yPos) {
 		if (listener != null)
-			listener.OnPointerNew(pdata, width, height);
+			listener.OnPointerNew(pdata, width, height, xPos, yPos);
 	}
 
 	private static void OnDisconnecting(long inst)
