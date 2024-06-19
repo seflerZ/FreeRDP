@@ -195,17 +195,7 @@ public class GlobalApp extends Application implements LibFreeRDP.EventListener
 		sendRDPNotification(FREERDP_EVENT_DISCONNECTED, instance);
 	}
 
-	public void OnPointerNew(byte[] pdata, int width, int height) {
-
-	}
-
-	@Override
-	public void OnPointerPos(int x, int y) {
-
-	}
-
-	@Override
-	public void OnPointerUpdate(byte[] pdata, int width, int height) {
+	public void OnPointerNew(byte[] pdata, int width, int height, int xPos, int yPos) {
 
 	}
 
