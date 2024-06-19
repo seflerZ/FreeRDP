@@ -635,9 +635,7 @@ public class LibFreeRDP
 
 		void OnDisconnected(long instance);
 
-		void OnPointerNew(byte[] pdata, int width, int height);
-
-		void OnPointerUpdate(byte[] pdata, int width, int height);
+		void OnPointerNew(byte[] pdata, int width, int height, int xPos, int yPos);
 	}
 
 	public static interface UIEventListener {
