@@ -301,16 +301,20 @@ public class LibFreeRDP
 //			args.add("/gfx");
 //		}
 
-		args.add("/rfx");
+		args.add("/network:auto");
+
+//		args.add("/rfx");
+		args.add(addFlag("async-input", true));
+		args.add(addFlag("async-update", true));
 
 		args.add(addFlag("wallpaper", true));
-		args.add(addFlag("window-drag", true));
-		args.add(addFlag("menu-anims", true));
+		args.add(addFlag("window-drag", false));
+		args.add(addFlag("menu-anims", false));
 		args.add(addFlag("themes", true));
 		args.add(addFlag("fonts", true));
-		args.add(addFlag("aero", true));
+		args.add(addFlag("aero", false));
 		args.add(addFlag("glyph-cache", true));
-		args.add(addFlag("relax-order-checks", true));
+		args.add(addFlag("relax-order-checks", false));
 
 		if (!advanced.getRemoteProgram().isEmpty())
 		{
