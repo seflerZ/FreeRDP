@@ -578,8 +578,8 @@ H264_CONTEXT* h264_context_new(BOOL Compressor)
 		if (Compressor)
 		{
 			/* Default compressor settings, may be changed by caller */
-			h264->BitRate = 1000000;
-			h264->FrameRate = 30;
+			h264->BitRate = 2000000;
+			h264->FrameRate = 60;
 		}
 
 		if (!h264_context_init(h264))
