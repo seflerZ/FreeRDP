@@ -124,6 +124,10 @@ function build {
         --enable-cross-compile \
         --enable-pic \
         --enable-jni --enable-mediacodec \
+	--enable-decoder=h264_mediacodec \
+ 	--enable-decoder=hevc_mediacodec \
+	--enable-decoder=mpeg4_mediacodec \
+	--enable-hwaccel=h264_mediacodec \
         --enable-shared \
         --disable-stripping \
         --disable-programs --disable-doc --disable-avdevice --disable-avfilter --disable-avformat
