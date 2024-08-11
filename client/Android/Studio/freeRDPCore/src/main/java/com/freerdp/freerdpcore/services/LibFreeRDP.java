@@ -296,16 +296,20 @@ public class LibFreeRDP
 		BookmarkBase.PerformanceFlags flags = bookmark.getActivePerformanceFlags();
 //		if (mHasH264)
 //		{
-			args.add("/gfx-h264:AVC444");
+			args.add("/gfx:avc444");
+			args.add("/gfx-progressive");
+			args.add("/frame-ack:0");
+
 //		} else {
 //			args.add("/gfx");
 //		}
 
-		args.add("/network:auto");
+//		args.add("/network:auto");
 
 //		args.add("/rfx");
 		args.add(addFlag("async-input", true));
 		args.add(addFlag("async-update", true));
+		args.add(addFlag("bitmap-cache", true));
 
 		args.add(addFlag("wallpaper", true));
 		args.add(addFlag("window-drag", false));
