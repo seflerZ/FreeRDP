@@ -229,7 +229,7 @@ public class LibFreeRDP
 		ArrayList<String> args = new ArrayList<String>();
 
 		args.add(TAG);
-		args.add("/gdi:sw");
+//		args.add("/gdi:sw");
 
 		final String clientName = ApplicationSettingsActivity.getClientName(context);
 		if (!clientName.isEmpty())
@@ -298,7 +298,7 @@ public class LibFreeRDP
 //		{
 			args.add("/gfx:avc444");
 			args.add("/gfx-progressive");
-			args.add("/frame-ack:0");
+			args.add("/frame-ack:1");
 
 //		} else {
 //			args.add("/gfx");
