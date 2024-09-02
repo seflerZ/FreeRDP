@@ -293,16 +293,14 @@ public class LibFreeRDP
 			args.add("/cert-name:" + certName);
 		}
 
-		BookmarkBase.PerformanceFlags flags = bookmark.getActivePerformanceFlags();
-//		if (mHasH264)
-//		{
+		if (mHasH264)
+		{
 			args.add("/gfx:avc444");
 			args.add("/gfx-progressive");
-			args.add("/frame-ack:1");
-
-//		} else {
-//			args.add("/gfx");
-//		}
+			args.add("/frame-ack:10");
+		} else {
+			args.add("/gfx");
+		}
 
 //		args.add("/network:auto");
 
