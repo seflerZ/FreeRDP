@@ -301,6 +301,7 @@ rdpSettings* freerdp_settings_new(DWORD flags)
 	if (!settings)
 		return NULL;
 
+	settings->IPv6Enabled = TRUE;
 	settings->HiDefRemoteApp = FALSE;
 	settings->RemoteApplicationSupportMask =
 	    RAIL_LEVEL_SUPPORTED | RAIL_LEVEL_DOCKED_LANGBAR_SUPPORTED |
