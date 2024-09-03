@@ -288,10 +288,12 @@ public class LibFreeRDP
 				break;
 		}
 
-		if (!certName.isEmpty())
-		{
-			args.add("/cert-name:" + certName);
-		}
+//		if (!certName.isEmpty())
+//		{
+//			args.add("/cert-name:" + certName);
+//		}
+
+		args.add("/cert-ignore");
 
 		if (mHasH264)
 		{
@@ -308,6 +310,7 @@ public class LibFreeRDP
 		args.add(addFlag("async-input", true));
 		args.add(addFlag("async-update", true));
 		args.add(addFlag("bitmap-cache", true));
+		args.add(addFlag("async-channels", true));
 
 		args.add(addFlag("wallpaper", true));
 		args.add(addFlag("window-drag", false));
@@ -328,9 +331,9 @@ public class LibFreeRDP
 			args.add("/shell-dir:" + advanced.getWorkDir());
 		}
 
-		args.add(addFlag("async-channels", debug.getAsyncChannel()));
-		args.add(addFlag("async-input", debug.getAsyncInput()));
-		args.add(addFlag("async-update", debug.getAsyncUpdate()));
+//		args.add(addFlag("async-channels", debug.getAsyncChannel()));
+//		args.add(addFlag("async-input", debug.getAsyncInput()));
+//		args.add(addFlag("async-update", debug.getAsyncUpdate()));
 
 		if (advanced.getRedirectSDCard())
 		{
