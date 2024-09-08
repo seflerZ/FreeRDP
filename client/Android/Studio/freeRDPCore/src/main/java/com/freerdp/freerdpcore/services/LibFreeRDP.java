@@ -293,7 +293,7 @@ public class LibFreeRDP
 //			args.add("/cert-name:" + certName);
 //		}
 
-		args.add("/cert-ignore");
+		args.add("/cert:ignore");
 
 		if (mHasH264)
 		{
@@ -304,9 +304,10 @@ public class LibFreeRDP
 			args.add("/gfx");
 		}
 
-//		args.add("/network:auto");
+		args.add("/heartbeat");
+		args.add("/multitransport");
 
-//		args.add("/rfx");
+		args.add(addFlag("fast-path", true));
 		args.add(addFlag("async-input", true));
 		args.add(addFlag("async-update", true));
 		args.add(addFlag("bitmap-cache", true));
@@ -319,7 +320,7 @@ public class LibFreeRDP
 		args.add(addFlag("fonts", true));
 		args.add(addFlag("aero", false));
 		args.add(addFlag("glyph-cache", true));
-		args.add(addFlag("relax-order-checks", false));
+		args.add(addFlag("relax-order-checks", true));
 
 		if (!advanced.getRemoteProgram().isEmpty())
 		{
