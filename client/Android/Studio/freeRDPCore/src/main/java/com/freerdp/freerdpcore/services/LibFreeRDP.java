@@ -336,14 +336,14 @@ public class LibFreeRDP
 //		args.add(addFlag("async-input", debug.getAsyncInput()));
 //		args.add(addFlag("async-update", debug.getAsyncUpdate()));
 
-		if (advanced.getRedirectSDCard())
-		{
-			File dir = context.getExternalFilesDir(null);
-			if (dir != null) {
-				String path = dir.getPath();
-				args.add("/drive:sdcard," + path);
-			}
-		}
+//		if (advanced.getRedirectSDCard())
+//		{
+//			File dir = context.getExternalFilesDir(null);
+//			if (dir != null) {
+//				String path = dir.getPath();
+//				args.add("/drive:sdcard," + path);
+//			}
+//		}
 
 		args.add("/clipboard");
 
