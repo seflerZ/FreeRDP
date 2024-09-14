@@ -307,6 +307,7 @@ public class LibFreeRDP
 		args.add("/heartbeat");
 		args.add("/multitransport");
 
+		args.add(addFlag("auto-reconnect", true));
 		args.add(addFlag("fast-path", true));
 		args.add(addFlag("async-input", true));
 		args.add(addFlag("async-update", true));
