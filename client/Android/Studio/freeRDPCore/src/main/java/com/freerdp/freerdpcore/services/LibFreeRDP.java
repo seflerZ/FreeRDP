@@ -299,12 +299,13 @@ public class LibFreeRDP
 		{
 			args.add("/gfx:avc420");
 			args.add("/gfx-progressive");
-			args.add("/frame-ack:10");
+			args.add("/frame-ack:0");
 		} else {
 			args.add("/gfx");
 		}
 
 		args.add("/heartbeat");
+		args.add("/video");
 		args.add("/multitransport");
 
 		args.add(addFlag("auto-reconnect", true));
@@ -315,7 +316,7 @@ public class LibFreeRDP
 		args.add(addFlag("async-channels", true));
 
 		args.add(addFlag("wallpaper", true));
-		args.add(addFlag("window-drag", false));
+		args.add(addFlag("window-drag", true));
 		args.add(addFlag("menu-anims", false));
 		args.add(addFlag("themes", true));
 		args.add(addFlag("fonts", true));
@@ -380,7 +381,7 @@ public class LibFreeRDP
 		args.add("/audio-mode:" + String.valueOf(advanced.getRedirectSound()));
 		if (advanced.getRedirectSound() == 0)
 		{
-			args.add("/sound:latency:80");
+			args.add("/sound:latency:85");
 		}
 
 		if (advanced.getRedirectMicrophone())

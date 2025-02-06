@@ -776,9 +776,9 @@ public class BookmarkBase implements Parcelable, Cloneable
 
 		private void init()
 		{
-			debug = "INFO";
+			debug = "WARN";
 			asyncChannel = true;
-			asyncTransport = false;
+			asyncTransport = true;
 			asyncInput = true;
 			asyncUpdate = true;
 		}
