@@ -117,6 +117,7 @@
     <string name="settings_perf_menu_animation">Menu Animation</string>
     <string name="settings_perf_theming">Visual Styles</string>
     <string name="settings_advanced">Advanced</string>
+    <string name="settings_default">Default Settings</string>
     <string name="settings_cat_advanced">Advanced Settings</string>
     <string name="settings_enable_3g_settings">3G Settings</string>
     <string name="settings_screen_3g">3G Screen</string>
