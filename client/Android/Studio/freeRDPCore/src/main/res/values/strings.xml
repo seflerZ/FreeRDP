@@ -259,6 +259,10 @@
     <string name="add_some_gesture">Add a gesture first</string>
     <string name="gesture_name_required">Gesture name required</string>
 
+    <string name="gesture_copy_to">Copy to which?</string>
+
     <string name="my_connections">My Connections</string>
     <string name="gesture_key_required">Shortcut key needed</string>
+
+    <string name="gesture_copied">Gesture Copied</string>
 </resources>
