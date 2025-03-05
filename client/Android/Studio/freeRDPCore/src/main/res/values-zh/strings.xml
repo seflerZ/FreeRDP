@@ -180,7 +180,12 @@
     <string name="delete_gesture">删除手势</string>
     <string name="gesture_name">请输入手势名称</string>
     <string name="create_new_gesture">新手势</string>
+
+    <string name="gesture_copy_to">复制至哪个连接？</string>
+
     <string name="add_some_gesture">您必须先绘制一些手势</string>
     <string name="gesture_name_required">需要输入手势名称</string>
     <string name="gesture_key_required">需要绑定一个快捷键</string>
+
+    <string name="gesture_copied">手势已复制</string>
 </resources>
