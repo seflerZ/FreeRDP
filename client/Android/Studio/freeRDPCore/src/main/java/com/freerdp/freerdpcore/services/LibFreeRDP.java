@@ -299,7 +299,7 @@ public class LibFreeRDP
 		{
 			args.add("/gfx:avc420");
 			args.add("/gfx-progressive");
-			args.add("/frame-ack:0");
+			args.add("/frame-ack:60");
 		} else {
 			args.add("/gfx");
 		}
@@ -314,6 +314,7 @@ public class LibFreeRDP
 		args.add(addFlag("async-update", true));
 		args.add(addFlag("bitmap-cache", true));
 		args.add(addFlag("async-channels", true));
+		args.add(addFlag("compression", true));
 
 		args.add(addFlag("wallpaper", true));
 		args.add(addFlag("window-drag", true));
@@ -322,7 +323,7 @@ public class LibFreeRDP
 		args.add(addFlag("fonts", true));
 		args.add(addFlag("aero", false));
 		args.add(addFlag("glyph-cache", true));
-		args.add(addFlag("relax-order-checks", true));
+		args.add(addFlag("relax-order-checks", false));
 
 		if (!advanced.getRemoteProgram().isEmpty())
 		{
@@ -390,7 +391,7 @@ public class LibFreeRDP
 		}
 
 		//args.add("/cert-ignore");
-		args.add("/log-level:" + debug.getDebugLevel());
+//		args.add("/log-level:" + debug.getDebugLevel());
 		String[] arrayArgs = args.toArray(new String[args.size()]);
 		return freerdp_parse_arguments(inst, arrayArgs);
 	}
