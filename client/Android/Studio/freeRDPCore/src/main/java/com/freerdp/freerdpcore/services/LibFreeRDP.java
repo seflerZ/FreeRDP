@@ -297,7 +297,7 @@ public class LibFreeRDP
 
 		if (mHasH264)
 		{
-			args.add("/gfx:avc420");
+			args.add("/gfx:avc444");
 			args.add("/gfx-progressive");
 			args.add("/frame-ack:60");
 		} else {
@@ -316,12 +316,12 @@ public class LibFreeRDP
 		args.add(addFlag("async-channels", true));
 		args.add(addFlag("compression", true));
 
-		args.add(addFlag("wallpaper", true));
-		args.add(addFlag("window-drag", true));
-		args.add(addFlag("menu-anims", false));
-		args.add(addFlag("themes", true));
-		args.add(addFlag("fonts", true));
-		args.add(addFlag("aero", false));
+//		args.add(addFlag("wallpaper", true));
+//		args.add(addFlag("window-drag", true));
+//		args.add(addFlag("menu-anims", false));
+//		args.add(addFlag("themes", true));
+//		args.add(addFlag("fonts", true));
+//		args.add(addFlag("aero", false));
 		args.add(addFlag("glyph-cache", true));
 		args.add(addFlag("relax-order-checks", false));
 
@@ -349,6 +349,7 @@ public class LibFreeRDP
 //		}
 
 		args.add("/clipboard");
+		args.add("/network:auto");
 
 		// Gateway enabled?
 		if (bookmark.getType() == BookmarkBase.TYPE_MANUAL &&
