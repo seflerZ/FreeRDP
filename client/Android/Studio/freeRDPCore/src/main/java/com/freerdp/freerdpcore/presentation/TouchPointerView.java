@@ -82,7 +82,7 @@ public class TouchPointerView extends ImageView
 	{
 		gestureDetector =
 		    new GestureDetector(context, new TouchPointerGestureListener(), null, true);
-		gestureDetector.setLongPressTimeout(500);
+		gestureDetector.setLongPressTimeout(400);
 		translationMatrix = new Matrix();
 		setScaleType(ScaleType.MATRIX);
 		setImageMatrix(translationMatrix);
