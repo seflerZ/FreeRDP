@@ -556,6 +556,7 @@ public class BookmarkBase implements Parcelable, Cloneable
 		private int colors;
 		private int width;
 		private int height;
+		private int zoomLevel;
 
 		public ScreenSettings()
 		{
@@ -648,6 +649,10 @@ public class BookmarkBase implements Parcelable, Cloneable
 			return resolution;
 		}
 
+		public int getZoomLevel() {
+			return zoomLevel;
+		}
+
 		public void setResolution(int resolution)
 		{
 			this.resolution = resolution;
@@ -735,6 +740,10 @@ public class BookmarkBase implements Parcelable, Cloneable
 			out.writeInt(colors);
 			out.writeInt(width);
 			out.writeInt(height);
+		}
+
+		public void setZoomLevel(int zoomLevel) {
+			this.zoomLevel = zoomLevel;
 		}
 	}
 
