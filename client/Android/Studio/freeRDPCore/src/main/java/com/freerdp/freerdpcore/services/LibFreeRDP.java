@@ -348,6 +348,9 @@ public class LibFreeRDP
 //			}
 //		}
 
+		args.add("/scale-desktop:" + bookmark.getScreenSettings().getZoomLevel());
+		args.add("/scale:100");
+
 		args.add("/clipboard");
 		args.add("/network:auto");
 
