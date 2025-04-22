@@ -92,7 +92,7 @@
     <string name="settings_perf_theming">视觉样式</string>
     <string name="settings_advanced">高级</string>
     <string name="settings_cat_advanced">高级设置</string>
-    <string name="settings_default">默认设置</string>
+    <string name="settings_default">全局设置</string>
     <string name="settings_enable_3g_settings">3G设置</string>
     <string name="settings_screen_3g">使用3G网络时的显示设置</string>
     <string name="settings_performance_3g">使用3G网络时的连接性能</string>
