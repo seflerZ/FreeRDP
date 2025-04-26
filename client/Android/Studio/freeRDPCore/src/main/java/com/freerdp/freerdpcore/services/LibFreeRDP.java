@@ -383,15 +383,15 @@ public class LibFreeRDP
 		/* 0 ... local
 		   1 ... remote
 		   2 ... disable */
-		args.add("/audio-mode:" + String.valueOf(advanced.getRedirectSound()));
+		args.add("/audio-mode:" + advanced.getRedirectSound());
 		if (advanced.getRedirectSound() == 0)
 		{
-			args.add("/sound:latency:85");
+			args.add("/sound:quality:high,latency:85");
 		}
 
 		if (advanced.getRedirectMicrophone())
 		{
-			args.add("/microphone");
+			args.add("/microphone:quality:high");
 		}
 
 		//args.add("/cert-ignore");
