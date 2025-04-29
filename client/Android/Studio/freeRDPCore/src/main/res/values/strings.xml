@@ -107,6 +107,7 @@
     <string name="settings_height">Height</string>
     <string name="settings_performance">Performance</string>
     <string name="settings_cat_performance">Performance Settings</string>
+
     <string name="settings_perf_remotefx">RemoteFX</string>
     <string name="settings_perf_gfx" translatable="false">GFX</string>
     <string name="settings_perf_gfx_h264" translatable="false">H264</string>
@@ -117,7 +118,7 @@
     <string name="settings_perf_menu_animation">Menu Animation</string>
     <string name="settings_perf_theming">Visual Styles</string>
     <string name="settings_advanced">Advanced</string>
-    <string name="settings_default">Default Settings</string>
+    <string name="settings_default">Global Settings</string>
     <string name="settings_cat_advanced">Advanced Settings</string>
     <string name="settings_enable_3g_settings">3G Settings</string>
     <string name="settings_screen_3g">3G Screen</string>
