@@ -305,7 +305,7 @@ public class LibFreeRDP
 		}
 
 		args.add("/heartbeat");
-		args.add("/video");
+//		args.add("/video");
 		args.add("/multitransport");
 
 		args.add(addFlag("auto-reconnect", true));
