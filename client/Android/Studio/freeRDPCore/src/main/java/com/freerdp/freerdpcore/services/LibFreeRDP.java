@@ -229,7 +229,7 @@ public class LibFreeRDP
 		ArrayList<String> args = new ArrayList<String>();
 
 		args.add(TAG);
-//		args.add("/gdi:sw");
+		args.add("/gdi:sw");
 
 		final String clientName = ApplicationSettingsActivity.getClientName(context);
 		if (!clientName.isEmpty())
