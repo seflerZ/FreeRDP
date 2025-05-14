@@ -386,7 +386,7 @@ public class LibFreeRDP
 		args.add("/audio-mode:" + advanced.getRedirectSound());
 		if (advanced.getRedirectSound() == 0)
 		{
-			args.add("/sound:quality:high,latency:85");
+			args.add("/sound:latency:85");
 		}
 
 		if (advanced.getRedirectMicrophone())
