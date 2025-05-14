@@ -323,7 +323,7 @@ public class LibFreeRDP
 		args.add(addFlag("fonts", bookmark.getPerformanceFlags().getFontSmoothing()));
 		args.add(addFlag("aero", false));
 		args.add(addFlag("glyph-cache", true));
-		args.add(addFlag("relax-order-checks", false));
+		args.add(addFlag("relax-order-checks", true));
 
 		if (!advanced.getRemoteProgram().isEmpty())
 		{
