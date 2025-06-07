@@ -10,6 +10,8 @@ android {
         vectorDrawables.useSupportLibrary = true
     }
 
+    namespace "com.freerdp.freerdpcore"
+
     buildTypes {
         release {
             minifyEnabled false
