@@ -3,14 +3,13 @@ apply plugin: 'com.android.library'
 android {
     compileSdkVersion compileApi
 
+    namespace 'com.freerdp.freerdpcore'
 
     defaultConfig {
         minSdkVersion 14
         targetSdkVersion targetApi
         vectorDrawables.useSupportLibrary = true
     }
-
-    namespace "com.freerdp.freerdpcore"
 
     buildTypes {
         release {
