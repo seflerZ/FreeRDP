@@ -299,16 +299,16 @@ public class LibFreeRDP
 		{
 			args.add("/gfx:avc444");
 			args.add("/gfx-progressive");
-			args.add("/frame-ack:60");
+			args.add("/frame-ack:0");
 		} else {
 			args.add("/gfx");
 		}
 
 		args.add("/heartbeat");
 //		args.add("/video");
-		args.add("/multitransport");
+//		args.add("/multitransport");
 
-		args.add(addFlag("auto-reconnect", true));
+//		args.add(addFlag("auto-reconnect", true));
 		args.add(addFlag("fast-path", true));
 		args.add(addFlag("async-input", true));
 		args.add(addFlag("async-update", true));
