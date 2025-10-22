@@ -306,11 +306,11 @@ public class LibFreeRDP
 
 		args.add("/heartbeat");
 //		args.add("/video");
-//		args.add("/multitransport");
+		args.add("/multitransport");
 
 //		args.add(addFlag("auto-reconnect", true));
 		args.add(addFlag("fast-path", true));
-		args.add(addFlag("async-input", true));
+		args.add(addFlag("async-input", false));
 		args.add(addFlag("async-update", true));
 		args.add(addFlag("bitmap-cache", true));
 		args.add(addFlag("async-channels", true));
