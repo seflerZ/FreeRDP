@@ -177,14 +177,14 @@ do
 		common_run mkdir -p $BUILD_SRC/freerdp-build/$ARCH
 		common_run cd $BUILD_SRC/freerdp-build/$ARCH
 		common_run export ANDROID_NDK=$ANDROID_NDK
+		common_run export CMAKE_LINKER=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld
 		common_run $CMAKE_PROGRAM $CMAKE_CMD_ARGS \
 			-DANDROID_ABI=$ARCH \
 			-DCMAKE_INSTALL_PREFIX=$BUILD_DST/$ARCH \
 			-DCMAKE_INSTALL_LIBDIR=. \
 			$SRC_DIR
 		echo $(pwd)
-		common_run $CMAKE_PROGRAM --build . --target install \
-					-DCMAKE_LINKER="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+		common_run $CMAKE_PROGRAM --build . --target install
 	fi
 done
 
