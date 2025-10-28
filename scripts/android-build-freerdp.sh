@@ -184,8 +184,7 @@ do
 			$SRC_DIR
 		echo $(pwd)
 		common_run $CMAKE_PROGRAM --build . --target install \
-					-DCMAKE_LINKER="${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld" \
-    			-DCMAKE_TOOLCHAIN_FILE="${NDK_PATH}/build/cmake/android.toolchain.cmake"
+					-DCMAKE_LINKER="${ANDROID_NDK}/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
 	fi
 done
 
