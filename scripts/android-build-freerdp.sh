@@ -181,11 +181,11 @@ do
 			-DANDROID_ABI=$ARCH \
 			-DCMAKE_INSTALL_PREFIX=$BUILD_DST/$ARCH \
 			-DCMAKE_INSTALL_LIBDIR=. \
-			-DCMAKE_LINKER="${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld" \
-			-DCMAKE_TOOLCHAIN_FILE="${NDK_PATH}/build/cmake/android.toolchain.cmake" \
 			$SRC_DIR
 		echo $(pwd)
-		common_run $CMAKE_PROGRAM --build . --target install
+		common_run $CMAKE_PROGRAM --build . --target install \
+					-DCMAKE_LINKER="${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld" \
+    			-DCMAKE_TOOLCHAIN_FILE="${NDK_PATH}/build/cmake/android.toolchain.cmake"
 	fi
 done
 
