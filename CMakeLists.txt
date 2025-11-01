@@ -1115,6 +1115,8 @@ endif()
 
 include(${CMAKE_CPACK_INCLUDE_FILE})
 
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
+
 set(FREERDP_BUILD_CONFIG_LIST "")
 GET_CMAKE_PROPERTY(res VARIABLES)
 FOREACH(var ${res})
