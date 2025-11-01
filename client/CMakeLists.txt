@@ -102,5 +102,5 @@ if(${CMAKE_VERSION} VERSION_GREATER "2.8.10")
 
 	install(EXPORT FreeRDP-ClientTargets DESTINATION ${FREERDP_CLIENT_CMAKE_INSTALL_DIR})
 
-	target_link_options(${MODULE_NAME} PRIVATE "-Wl,max-page-size=16384")
+	target_link_options("freerdp-client" PRIVATE "-Wl,max-page-size=16384")
 endif()
