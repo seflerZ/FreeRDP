@@ -21,9 +21,10 @@ set(MODULE_PREFIX "FREERDP_CLIENT_ANDROID")
 
 include_directories(.)
 
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-pointer-sign")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fpage-size=16384")
+if(CMAKE_C_COMPILER_ID MATCHES "GNU")  # GCC-specific flags
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-pointer-sign -fpage-size=16384")
+elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")  # Clang-specific flags
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-pointer-sign -mllvm -page-size=16384")
 endif()
 
 set(${MODULE_PREFIX}_SRCS
