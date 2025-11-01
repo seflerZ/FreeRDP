@@ -1111,6 +1111,11 @@ if(NOT (VENDOR MATCHES "FreeRDP"))
 	endif()
 endif()
 
+# 1. 移动链接选项到链接库之前，并添加全局共享链接器标志
+target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
+# 2. 全局设置共享库链接器标志（增强兼容性）
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
+
 #message("VENDOR: ${VENDOR} CLIENT_VENDOR_PATH: ${CLIENT_VENDOR_PATH} CMAKE_CPACK_INCLUDE_FILE: ${CMAKE_CPACK_INCLUDE_FILE}")
 
 include(${CMAKE_CPACK_INCLUDE_FILE})
