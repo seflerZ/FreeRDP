@@ -45,5 +45,3 @@ endif()
 if(BUILD_TESTING)
 	add_subdirectory(test)
 endif()
-
-target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
