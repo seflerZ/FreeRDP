@@ -51,6 +51,7 @@ set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} dl)
 set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} jnigraphics)
 
 #set_target_properties(${MODULE_NAME} PROPERTIES OUTPUT_NAME ${MODULE_NAME}${FREERDP_API_VERSION})
+
 # 链接阶段配置（保持并确认以下内容）
 target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
 # 目标特定链接器标志
@@ -58,5 +59,4 @@ target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
 # 全局共享库链接器标志（确保所有共享库继承）
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 
-target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
 install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries EXPORT AndroidTargets)
