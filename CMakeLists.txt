@@ -34,6 +34,8 @@ if(NOT DEFINED FREERDP_VENDOR)
 	set(FREERDP_VENDOR 1)
 endif()
 
+set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-z,max-page-size=16384 ${CMAKE_SHARED_LINKER_FLAGS}")
+
 option(CMAKE_COLOR_MAKEFILE "colorful CMake makefile" ON)
 option(CMAKE_VERBOSE_MAKEFILE "verbose CMake makefile" ON)
 option(CMAKE_POSITION_INDEPENDENT_CODE "build with position independent code (-fPIC or -fPIE)" ON)
@@ -1124,5 +1126,3 @@ FOREACH(var ${res})
 ENDFOREACH()
 string(REPLACE ";" " " FREERDP_BUILD_CONFIG "${FREERDP_BUILD_CONFIG_LIST}")
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/buildflags.h.in ${CMAKE_CURRENT_BINARY_DIR}/buildflags.h)
-
-set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-z,max-page-size=16384 ${CMAKE_SHARED_LINKER_FLAGS}")
