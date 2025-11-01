@@ -54,6 +54,6 @@ set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} jnigraphics)
 
 
 target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
-target_link_options(${MODULE_NAME} PRIVATE "-Wl,max-page-size=16384")
+target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
 
 install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries EXPORT AndroidTargets)
