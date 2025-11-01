@@ -24,7 +24,7 @@ include_directories(.)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU")  # GCC-specific flags
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-pointer-sign")
 elseif(CMAKE_C_COMPILER_ID MATCHES "Clang")  # Clang-specific flags
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-pointer-sign -fpage-size=16384")  # Fixed line
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-pointer-sign")
 endif()
 
 set(${MODULE_PREFIX}_SRCS
