@@ -21,7 +21,7 @@ set(MODULE_PREFIX "FREERDP_CLIENT_ANDROID")
 
 include_directories(.)
 
-if(CMAKE_COMPILER_IS_GNUCC)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-pointer-sign")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fpage-size=16384")
 endif()
@@ -51,10 +51,12 @@ set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} jnigraphics)
 
 #set_target_properties(${MODULE_NAME} PROPERTIES OUTPUT_NAME ${MODULE_NAME}${FREERDP_API_VERSION})
 
-# 1. 移动链接选项到链接库之前，并添加全局共享链接器标志
+target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
+
+# Keep target-specific linker flag
 target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
-# 2. 全局设置共享库链接器标志（增强兼容性）
+
+# Add global shared linker flag to ensure all shared libraries use 16KB pages
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 
-target_link_libraries(${MODULE_NAME} ${${MODULE_PREFIX}_LIBS})
 install(TARGETS ${MODULE_NAME} DESTINATION ${CMAKE_INSTALL_LIBDIR} COMPONENT libraries EXPORT AndroidTargets)
