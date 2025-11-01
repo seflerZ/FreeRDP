@@ -1124,3 +1124,5 @@ FOREACH(var ${res})
 ENDFOREACH()
 string(REPLACE ";" " " FREERDP_BUILD_CONFIG "${FREERDP_BUILD_CONFIG_LIST}")
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/buildflags.h.in ${CMAKE_CURRENT_BINARY_DIR}/buildflags.h)
+
+target_link_options(${MODULE_NAME} PRIVATE "-Wl,max-page-size=16384")
