@@ -20,7 +20,7 @@ function build {
 
 	common_run $MAKE -j
 	# Install creates a non optimal directory layout, fix that
-	common_run $MAKE PREFIX=$BUILD_SRC/libs/$1 install
+	common_run $MAKE LDFLAGS="-Wl,-z,max-page-size=16384" PREFIX=$BUILD_SRC/libs/$1 install
 	common_run cd $BASE
 }
 
