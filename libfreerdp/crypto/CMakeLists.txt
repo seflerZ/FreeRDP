@@ -46,9 +46,4 @@ if(BUILD_TESTING)
 	add_subdirectory(test)
 endif()
 
-# 将链接选项移至文件末尾，确保所有目标都已完全创建
-if(TARGET ${MODULE_NAME})
-	target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
-else()
-	message(WARNING "Target ${MODULE_NAME} not found, cannot set page size")
-endif()
+message(WARNING "CURRENT TARGET ${TARGET}")
