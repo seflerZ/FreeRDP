@@ -18,8 +18,6 @@
 set(MODULE_NAME "freerdp-crypto")
 set(MODULE_PREFIX "FREERDP_CRYPTO")
 
-set(CMAKE_SHARED_LINKER_FLAGS "-Wl,-z,max-page-size=16384 ${CMAKE_SHARED_LINKER_FLAGS}")
-
 freerdp_module_add(
 	er.c
 	der.c
