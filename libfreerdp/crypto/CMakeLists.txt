@@ -18,6 +18,8 @@
 set(MODULE_NAME "freerdp-crypto")
 set(MODULE_PREFIX "FREERDP_CRYPTO")
 
+target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
+
 freerdp_module_add(
 	er.c
 	der.c
