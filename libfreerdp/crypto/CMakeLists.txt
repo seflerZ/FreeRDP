@@ -45,5 +45,3 @@ endif()
 if(BUILD_TESTING)
 	add_subdirectory(test)
 endif()
-
-message(WARNING "CURRENT TARGET ${TARGET}")
