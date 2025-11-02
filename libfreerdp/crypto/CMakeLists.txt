@@ -29,8 +29,6 @@ freerdp_module_add(
 	tls.c
 	opensslcompat.c)
 
-target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
-
 freerdp_include_directory_add(${OPENSSL_INCLUDE_DIR})
 
 freerdp_library_add(${OPENSSL_LIBRARIES})
@@ -47,3 +45,5 @@ endif()
 if(BUILD_TESTING)
 	add_subdirectory(test)
 endif()
+
+target_link_options(${MODULE_NAME} PRIVATE "-Wl,-z,max-page-size=16384")
