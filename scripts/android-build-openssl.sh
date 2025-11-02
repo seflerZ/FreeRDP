@@ -30,7 +30,7 @@ function build {
 	DST_DIR=$BUILD_DST/$DST_PREFIX
 	common_run cd $BUILD_SRC
 	common_run ./Configure ${CONFIG} -D__ANDROID_API__=$NDK_TARGET
-	common_run make SHLIB_EXT=.so -j build_libs
+	common_run make -Wl,-z,max-page-size=16384 SHLIB_EXT=.so -j build_libs
 
 	if [ ! -d $DST_DIR ];
 	then
