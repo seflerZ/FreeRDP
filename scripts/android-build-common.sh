@@ -16,7 +16,7 @@ case "$(uname -s)" in
 esac
 
 if [ -z $BUILD_ARCH ]; then
-	BUILD_ARCH="armeabi-v7a x86 x86_64 arm64-v8a"
+	BUILD_ARCH="arm64-v8a"
 fi
 
 if [ -z $NDK_TARGET ]; then
