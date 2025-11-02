@@ -18,9 +18,9 @@ function build {
 	common_run export QUIET_CCAR="$CCACHE "
 	common_run export QUIET_CXX="$CCACHE "
 
-	common_run $MAKE -j
+	common_run $MAKE LDFLAGS="-Wl,-z,max-page-size=16384" -j
 	# Install creates a non optimal directory layout, fix that
-	common_run $MAKE LDFLAGS="-Wl,-z,max-page-size=16384" PREFIX=$BUILD_SRC/libs/$1 install
+	common_run $MAKE PREFIX=$BUILD_SRC/libs/$1 install
 	common_run cd $BASE
 }
 
