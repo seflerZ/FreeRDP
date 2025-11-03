@@ -125,6 +125,13 @@ do
 				--target $NDK_TARGET \
 				--tag $OPENH264_TAG \
 								--hash $OPENH264_HASH
+
+			common_run bash $SCRIPT_PATH/android-build-libcxx.sh \
+      				--src $BUILD_SRC/openh264 --dst $BUILD_DST \
+      				--sdk "$ANDROID_SDK" \
+      				--ndk "$ANDROID_NDK_OPENH264" \
+      				--arch $ARCH \
+      				--target $NDK_TARGET
 		fi
 		CMAKE_CMD_ARGS="$CMAKE_CMD_ARGS -DWITH_OPENH264=ON"
 	else
