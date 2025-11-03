@@ -5,7 +5,6 @@ SCM_TAG=""
 SCM_HASH=""
 
 SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
-source "$SCRIPT_DIR/android-build-common.sh"
 
 function build_libcxx {
     local ARCH_ABI="$1"
