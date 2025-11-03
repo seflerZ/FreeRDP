@@ -2,9 +2,10 @@
 
 SCM_URL=""
 SCM_TAG=""
-SCM_HASH=""
+SCM_HASH="any"
 
 SCRIPT_DIR=$(dirname "${BASH_SOURCE[0]}")
+source $(dirname "${BASH_SOURCE[0]}")/android-build-common.sh
 
 function build_libcxx {
     local ARCH_ABI="$1"
@@ -55,7 +56,6 @@ function build_libcxx {
 
 # =============== Main ===============
 common_parse_arguments "$@"
-common_check_requirements
 
 # Skip SCM update — libc++ is part of NDK
 # common_update $SCM_URL $SCM_TAG $BUILD_SRC $SCM_HASH
