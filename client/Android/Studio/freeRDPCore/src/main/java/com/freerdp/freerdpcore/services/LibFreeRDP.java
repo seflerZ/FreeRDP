@@ -299,18 +299,19 @@ public class LibFreeRDP
 		{
 			args.add("/gfx:avc444");
 			args.add("/gfx-progressive");
-			args.add("/frame-ack:0");
+			args.add("/frame-ack:yes");
 		} else {
 			args.add("/gfx");
 		}
 
-		args.add("/heartbeat");
+//		args.add("/heartbeat");
 //		args.add("/video");
 		args.add("/multitransport");
+		args.add("/glyph-cache");
 
 //		args.add(addFlag("auto-reconnect", true));
 		args.add(addFlag("fast-path", true));
-		args.add(addFlag("async-input", false));
+		args.add(addFlag("async-input", true));
 		args.add(addFlag("async-update", true));
 		args.add(addFlag("bitmap-cache", true));
 		args.add(addFlag("async-channels", true));
@@ -322,7 +323,6 @@ public class LibFreeRDP
 		args.add(addFlag("themes", bookmark.getPerformanceFlags().getTheming()));
 		args.add(addFlag("fonts", bookmark.getPerformanceFlags().getFontSmoothing()));
 		args.add(addFlag("aero", false));
-		args.add(addFlag("glyph-cache", true));
 		args.add(addFlag("relax-order-checks", true));
 
 		if (!advanced.getRemoteProgram().isEmpty())
