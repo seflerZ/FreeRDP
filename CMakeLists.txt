@@ -613,7 +613,7 @@ if(ANDROID)
 
 	if(ANDROID_ABI STREQUAL arm64-v8a)
 		# https://github.com/android/ndk/issues/910
-		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mfloat-abi=softfp")
+		set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
 	endif()
 
 	if("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
