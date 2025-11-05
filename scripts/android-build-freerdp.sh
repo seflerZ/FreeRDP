@@ -181,6 +181,9 @@ do
 			-DANDROID_ABI=$ARCH \
 			-DCMAKE_INSTALL_PREFIX=$BUILD_DST/$ARCH \
 			-DCMAKE_INSTALL_LIBDIR=. \
+			-DWINPR_TIMER=ON \
+      -DWINPR_HAVE_TIMERFD=ON \
+      -DWINPR_HAVE_CLOCK_GETTIME=ON
 			$SRC_DIR
 		echo $(pwd)
 		common_run $CMAKE_PROGRAM --build . --target install
