@@ -594,7 +594,7 @@ static BOOL mediacodec_init(H264_CONTEXT* h264)
     sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyFrameRate, 60);
     sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyBitRate, 10000000);
     sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat,
-                                 COLOR_FormatYUV420Planar);
+                                 COLOR_FormatYUV420Flexible);
 
     media_format = sys->fnAMediaFormat_toString(sys->inputFormat);
     if (media_format == NULL)
