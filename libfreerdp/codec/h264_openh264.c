@@ -210,14 +210,14 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
 		sys->EncParamExt.fMaxFrameRate = (int)h264->FrameRate;
 		sys->EncParamExt.iMaxBitrate = (int)h264->BitRate;;
 		sys->EncParamExt.bEnableDenoise = 0;
-        sys->EncParamExt.uiIntraPeriod = 30;
+        sys->EncParamExt.uiIntraPeriod = 1;
 		sys->EncParamExt.bEnableLongTermReference = 0;
 		sys->EncParamExt.bEnableFrameSkip = 1;
 		sys->EncParamExt.iSpatialLayerNum = 1;
         sys->EncParamExt.iLoopFilterDisableIdc = 1;
-        sys->EncParamExt.iNumRefFrame = 2;          // 至少 2 个参考帧
+        sys->EncParamExt.iNumRefFrame = 1;          // 至少 2 个参考帧
         sys->EncParamExt.bEnableLongTermReference = 1; // 启用长期参考帧
-        sys->EncParamExt.iMultipleThreadIdc = 2;
+        sys->EncParamExt.iMultipleThreadIdc = 1;
 		sys->EncParamExt.sSpatialLayers[0].fFrameRate = h264->FrameRate;
 		sys->EncParamExt.sSpatialLayers[0].iVideoWidth = sys->EncParamExt.iPicWidth;
 		sys->EncParamExt.sSpatialLayers[0].iVideoHeight = sys->EncParamExt.iPicHeight;
