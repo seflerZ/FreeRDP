@@ -223,7 +223,7 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
 		{
 			case H264_RATECONTROL_VBR:
 				sys->EncParamExt.iRCMode = RC_BITRATE_MODE;
-				sys->EncParamExt.iTargetBitrate = (int)h264->BitRate;
+				sys->EncParamExt.iTargetBitrate = (int)(h264->BitRate * 0.9);
 				sys->EncParamExt.sSpatialLayers[0].iSpatialBitrate =
 				    sys->EncParamExt.iTargetBitrate;
 				break;
