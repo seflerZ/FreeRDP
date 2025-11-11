@@ -207,6 +207,7 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
 		sys->EncParamExt.fMaxFrameRate = (int)h264->FrameRate;
 		sys->EncParamExt.iMaxBitrate = (int)h264->BitRate;;
 		sys->EncParamExt.bEnableDenoise = 0;
+        sys->EncParamExt.iIntraPeriod = 30;
 		sys->EncParamExt.bEnableLongTermReference = 0;
 		sys->EncParamExt.bEnableFrameSkip = 1;
 		sys->EncParamExt.iSpatialLayerNum = 1;
