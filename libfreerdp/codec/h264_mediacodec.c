@@ -20,6 +20,7 @@
 #include <winpr/wlog.h>
 #include <winpr/assert.h>
 #include <winpr/library.h>
+#include <winpr/winpr.h> // for WINPR_MIN
 
 #include <freerdp/log.h>
 #include <freerdp/codec/h264.h>
@@ -59,6 +60,9 @@
 		rc;                                                                          \
 	})
 
+// ✅ 正确声明 AMediaFormat_getInt32 函数指针类型（返回 BOOL，参数为指针）
+typedef BOOL (*AMediaFormat_getInt32_t)(AMediaFormat*, const char*, int32_t*);
+
 typedef AMediaFormat* (*AMediaFormat_new_t)(void);
 typedef media_status_t (*AMediaFormat_delete_t)(AMediaFormat*);
 typedef const char* (*AMediaFormat_toString_t)(AMediaFormat*);
@@ -89,11 +93,14 @@ const int COLOR_FormatYUV420Flexible = 0x7f420888;
 struct _H264_CONTEXT_MEDIACODEC
 {
     AMediaCodec* decoder;
-    AMediaFormat* inputFormat;
-    AMediaFormat* outputFormat;
+    AMediaFormat* inputFormat;   // ✅ 必须有！
+    AMediaFormat* outputFormat;  // ✅ 必须有！
     int32_t width;
     int32_t height;
+    int32_t lastWidth;
+    int32_t lastHeight;
     ssize_t currentOutputBufferIndex;
+    BOOL formatChanged;
 
     // libmediandk.so imports
     HMODULE mediandkLibrary;
@@ -102,6 +109,7 @@ struct _H264_CONTEXT_MEDIACODEC
     AMediaFormat_delete_t fnAMediaFormat_delete;
     AMediaFormat_toString_t fnAMediaFormat_toString;
     AMediaFormat_setInt32_t fnAMediaFormat_setInt32;
+    AMediaFormat_getInt32_t fnAMediaFormat_getInt32; // ✅ 正确声明：返回 BOOL，参数是 int32_t*
     AMediaFormat_setString_t fnAMediaFormat_setString;
     AMediaCodec_createDecoderByType_t fnAMediaCodec_createDecoderByType;
     AMediaCodec_delete_t fnAMediaCodec_delete;
@@ -126,6 +134,11 @@ struct _H264_CONTEXT_MEDIACODEC
     const char* gAMediaFormatKeyFrameRate;
     const char* gAMediaFormatKeyBitRate;
     const char* gAMediaFormatKeyColorFormat;
+
+    // 缓存输出缓冲区
+    size_t lastOutputBufferSize;
+    uint8_t* cachedOutputBuffer;
+    size_t cachedOutputBufferSize;
 };
 
 typedef struct _H264_CONTEXT_MEDIACODEC H264_CONTEXT_MEDIACODEC;
@@ -150,88 +163,62 @@ static int load_libmediandk(H264_CONTEXT* h264)
     }
 
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaFormat_new);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaFormat_delete);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaFormat_toString);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaFormat_setInt32);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
+    rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaFormat_getInt32); // ✅ 必须加载！
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaFormat_setString);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_createDecoderByType);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_delete);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_configure);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_start);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_stop);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_getInputBuffer);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_getOutputBuffer);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_dequeueInputBuffer);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_queueInputBuffer);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_dequeueOutputBuffer);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_getOutputFormat);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_releaseOutputBuffer);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_setParameters);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_getName);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_releaseName);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_FUNC(sys, AMediaCodec_getInputFormat);
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
 
     rc = RESOLVE_MEDIANDK_VARIABLE(sys, gAMediaFormatKeyMime, "AMEDIAFORMAT_KEY_MIME");
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_VARIABLE(sys, gAMediaFormatKeyWidth, "AMEDIAFORMAT_KEY_WIDTH");
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_VARIABLE(sys, gAMediaFormatKeyFrameRate, "AMEDIAFORMAT_KEY_FRAME_RATE");
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_VARIABLE(sys, gAMediaFormatKeyBitRate, "AMEDIAFORMAT_KEY_BIT_RATE");
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
     rc = RESOLVE_MEDIANDK_VARIABLE(sys, gAMediaFormatKeyHeight, "AMEDIAFORMAT_KEY_HEIGHT");
-    if (!rc)
-        return -1;
-    rc = RESOLVE_MEDIANDK_VARIABLE(sys, gAMediaFormatKeyColorFormat,
-                                   "AMEDIAFORMAT_KEY_COLOR_FORMAT");
-    if (!rc)
-        return -1;
+    if (!rc) return -1;
+    rc = RESOLVE_MEDIANDK_VARIABLE(sys, gAMediaFormatKeyColorFormat, "AMEDIAFORMAT_KEY_COLOR_FORMAT");
+    if (!rc) return -1;
 
     return 0;
 }
@@ -316,14 +303,17 @@ static int mediacodec_compress(H264_CONTEXT* h264, const BYTE** pSrcYuv, const U
 
 static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize)
 {
-    ssize_t inputBufferId = -1;
-    size_t inputBufferSize, outputBufferSize;
+    ssize_t inputBufferId;
+    size_t inputBufferSize;
     uint8_t* inputBuffer;
     media_status_t status;
-    const char* media_format;
+    H264_CONTEXT_MEDIACODEC* sys;
+    AMediaCodecBufferInfo bufferInfo;
+    ssize_t outputBufferId;
+    uint8_t* outputBuffer;
+    size_t outputBufferSize;
     BYTE** pYUVData;
     UINT32* iStride;
-    H264_CONTEXT_MEDIACODEC* sys;
 
     WINPR_ASSERT(h264);
     WINPR_ASSERT(pSrcData);
@@ -332,161 +322,247 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
     WINPR_ASSERT(sys);
 
     pYUVData = h264->pYUVData;
-    WINPR_ASSERT(pYUVData);
-
     iStride = h264->iStride;
-    WINPR_ASSERT(iStride);
 
     release_current_outputbuffer(h264);
 
-    if (sys->width == 0)
+    // ✅ 关键：在每次解码前，清空目标 YUV 缓冲区（避免重影）
+    // FreeRDP 的 pYUVData 指向的是“目标显示缓冲区”，我们需要清空它
+    if (sys->decoder && pYUVData[0] && sys->width > 0 && sys->height > 0)
     {
-        int32_t width = h264->width;
-        int32_t height = h264->height;
-        int32_t frameRate = h264->FrameRate;
-        int32_t bitRate = h264->BitRate;
-        if (width % 16 != 0)
-            width += 16 - width % 16;
-        if (height % 16 != 0)
-            height += 16 - height % 16;
+        // 清空 Y 分量（全黑）
+        memset(pYUVData[0], 0, iStride[0] * sys->height);
 
-        WLog_Print(h264->log, WLOG_ERROR, "MediaCodec setting width and height [%d,%d], framerate %d, bitrate %d", width,
-                   height, frameRate, bitRate);
-        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyWidth, width);
-        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyHeight, height);
-        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyFrameRate, frameRate);
-        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyBitRate, bitRate);
+        // 清空 U 分量
+        memset(pYUVData[1], 128, iStride[1] * ((sys->height + 1) / 2));
 
-        status = sys->fnAMediaCodec_setParameters(sys->decoder, sys->inputFormat);
-        if (status != AMEDIA_OK)
+        // 清空 V 分量
+        memset(pYUVData[2], 128, iStride[2] * ((sys->height + 1) / 2));
+    }
+
+    // ✅ ✅ ✅ 关键：如果解码器未创建，且宽高有效 → 创建解码器
+    if (!sys->decoder && h264->width > 0 && h264->height > 0)
+    {
+        WLog_Print(h264->log, WLOG_INFO, "MediaCodec: Initializing decoder with resolution %dx%d",
+                   h264->width, h264->height);
+
+        sys->decoder = sys->fnAMediaCodec_createDecoderByType("video/avc");
+        if (!sys->decoder)
         {
-            WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_setParameters failed: %d", status);
+            WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_createDecoderByType failed");
             return -1;
         }
 
-        sys->width = width;
-        sys->height = height;
-    }
-
-    while (true)
-    {
-        UINT32 inputBufferCurrnetOffset = 0;
-        while (inputBufferCurrnetOffset < SrcSize)
+        sys->inputFormat = sys->fnAMediaFormat_new();
+        if (!sys->inputFormat)
         {
-            UINT32 numberOfBytesToCopy = SrcSize - inputBufferCurrnetOffset;
-            inputBufferId = sys->fnAMediaCodec_dequeueInputBuffer(sys->decoder, -1);
-            if (inputBufferId < 0)
-            {
-                WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_dequeueInputBuffer failed [%d]",
-                           inputBufferId);
-                // TODO: sleep?
-                continue;
-            }
-
-            inputBuffer =
-                    sys->fnAMediaCodec_getInputBuffer(sys->decoder, inputBufferId, &inputBufferSize);
-            if (inputBuffer == NULL)
-            {
-                WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_getInputBuffer failed");
-                return -1;
-            }
-
-            if (numberOfBytesToCopy > inputBufferSize)
-            {
-                WLog_Print(h264->log, WLOG_WARN,
-                           "MediaCodec inputBufferSize: got [%d] but wanted [%d]", inputBufferSize,
-                           numberOfBytesToCopy);
-                numberOfBytesToCopy = inputBufferSize;
-            }
-
-            memcpy(inputBuffer, pSrcData + inputBufferCurrnetOffset, numberOfBytesToCopy);
-            inputBufferCurrnetOffset += numberOfBytesToCopy;
-
-            status = sys->fnAMediaCodec_queueInputBuffer(sys->decoder, inputBufferId, 0,
-                                                         numberOfBytesToCopy, 0, 0);
-            if (status != AMEDIA_OK)
-            {
-                WLog_Print(h264->log, WLOG_ERROR, "Error AMediaCodec_queueInputBuffer %d", status);
-                return -1;
-            }
+            WLog_Print(h264->log, WLOG_ERROR, "AMediaFormat_new failed");
+            goto EXCEPTION;
         }
 
-        while (true)
+        sys->fnAMediaFormat_setString(sys->inputFormat, sys->gAMediaFormatKeyMime, "video/avc");
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyWidth, h264->width);
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyHeight, h264->height);
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyFrameRate, h264->FrameRate);
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyBitRate, h264->BitRate);
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat,
+                                     COLOR_FormatYUV420Planar); // ✅ 使用标准值
+
+        // ✅ 配置解码器
+        status = sys->fnAMediaCodec_configure(sys->decoder, sys->inputFormat, NULL, NULL, 0);
+        if (status != AMEDIA_OK)
         {
-            AMediaCodecBufferInfo bufferInfo;
-            ssize_t outputBufferId =
-                    sys->fnAMediaCodec_dequeueOutputBuffer(sys->decoder, &bufferInfo, -1);
-            if (outputBufferId >= 0)
-            {
-                sys->currentOutputBufferIndex = outputBufferId;
+            WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_configure failed: %d", status);
+            goto EXCEPTION;
+        }
 
-                uint8_t* outputBuffer;
-                outputBuffer = sys->fnAMediaCodec_getOutputBuffer(sys->decoder, outputBufferId,
-                                                                  &outputBufferSize);
-                sys->currentOutputBufferIndex = outputBufferId;
+        // ✅ 获取实际配置的格式（调试用）
+        sys->inputFormat = sys->fnAMediaCodec_getInputFormat(sys->decoder);
+        sys->outputFormat = sys->fnAMediaCodec_getOutputFormat(sys->decoder);
 
-                if (outputBufferSize != (sys->width * sys->height +
-                                         ((sys->width + 1) / 2) * ((sys->height + 1) / 2) * 2))
-                {
-                    WLog_Print(h264->log, WLOG_ERROR, "Error unexpected output buffer size %d",
-                               outputBufferSize);
-                    return -1;
-                }
+        status = sys->fnAMediaCodec_start(sys->decoder);
+        if (status != AMEDIA_OK)
+        {
+            WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_start failed: %d", status);
+            goto EXCEPTION;
+        }
 
-                // TODO: work with AImageReader and get AImage object instead of
-                // COLOR_FormatYUV420Planar buffer.
-                iStride[0] = sys->width;
-                iStride[1] = (sys->width + 1) / 2;
-                iStride[2] = (sys->width + 1) / 2;
-                pYUVData[0] = outputBuffer;
-                pYUVData[1] = outputBuffer + iStride[0] * sys->height;
-                pYUVData[2] =
-                        outputBuffer + iStride[0] * sys->height + iStride[1] * ((sys->height + 1) / 2);
-                break;
-            }
-            else if (outputBufferId == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED)
-            {
-                AMediaFormat* outputFormat;
-                outputFormat = sys->fnAMediaCodec_getOutputFormat(sys->decoder);
-                if (outputFormat == NULL)
-                {
-                    WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_getOutputFormat failed");
-                    return -1;
-                }
-                set_mediacodec_format(h264, &sys->outputFormat, outputFormat);
+        sys->width = h264->width;
+        sys->height = h264->height;
+        sys->lastWidth = sys->width;
+        sys->lastHeight = sys->height;
 
-                media_format = sys->fnAMediaFormat_toString(sys->outputFormat);
-                if (media_format == NULL)
-                {
-                    WLog_Print(h264->log, WLOG_ERROR, "AMediaFormat_toString failed");
-                    return -1;
-                }
-            }
-            else if (outputBufferId == AMEDIACODEC_INFO_TRY_AGAIN_LATER)
+        WLog_Print(h264->log, WLOG_INFO, "MediaCodec decoder initialized successfully");
+    }
+
+    // ✅ 如果解码器仍未创建，说明宽高仍为0，跳过处理
+    if (!sys->decoder)
+    {
+        WLog_Print(h264->log, WLOG_WARN, "MediaCodec: Waiting for valid width/height (current: %dx%d)",
+                   h264->width, h264->height);
+        return 0; // 不处理，等待下一帧
+    }
+
+    // ✅ 正常解码流程
+    UINT32 offset = 0;
+    int retry = 0;
+
+    while (offset < SrcSize && retry < 3)
+    {
+        inputBufferId = sys->fnAMediaCodec_dequeueInputBuffer(sys->decoder, 10000); // 10ms
+        if (inputBufferId < 0)
+        {
+            if (inputBufferId == AMEDIACODEC_INFO_TRY_AGAIN_LATER)
             {
-                WLog_Print(h264->log, WLOG_WARN,
-                           "AMediaCodec_dequeueOutputBuffer need to try again later");
-                // TODO: sleep?
-            }
-            else if (outputBufferId == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED)
-            {
-                WLog_Print(h264->log, WLOG_WARN,
-                           "AMediaCodec_dequeueOutputBuffer returned deprecated value "
-                           "AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED, ignoring");
+                retry++;
+                continue;
             }
             else
             {
-                WLog_Print(h264->log, WLOG_ERROR,
-                           "AMediaCodec_dequeueOutputBuffer returned unknown value [%d]",
-                           outputBufferId);
+                WLog_Print(h264->log, WLOG_ERROR, "dequeueInputBuffer failed: %zd", inputBufferId);
                 return -1;
             }
         }
 
-        break;
+        inputBuffer = sys->fnAMediaCodec_getInputBuffer(sys->decoder, inputBufferId, &inputBufferSize);
+        if (!inputBuffer)
+        {
+            WLog_Print(h264->log, WLOG_ERROR, "getInputBuffer failed");
+            return -1;
+        }
+
+        UINT32 copySize = (SrcSize - offset) < inputBufferSize ? (SrcSize - offset) : inputBufferSize;
+        memcpy(inputBuffer, pSrcData + offset, copySize);
+
+        status = sys->fnAMediaCodec_queueInputBuffer(sys->decoder, inputBufferId, 0, copySize, 0, 0);
+        if (status != AMEDIA_OK)
+        {
+            WLog_Print(h264->log, WLOG_ERROR, "queueInputBuffer failed: %d", status);
+            return -1;
+        }
+
+        offset += copySize;
+        retry = 0;
     }
 
+    if (offset < SrcSize)
+    {
+        WLog_Print(h264->log, WLOG_WARN, "Failed to enqueue all data (%u/%u)", offset, SrcSize);
+    }
+
+    outputBufferId = sys->fnAMediaCodec_dequeueOutputBuffer(sys->decoder, &bufferInfo, 5000); // 5ms
+    if (outputBufferId == AMEDIACODEC_INFO_TRY_AGAIN_LATER)
+    {
+        return 0;
+    }
+    else if (outputBufferId == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED)
+    {
+        AMediaFormat* newFormat = sys->fnAMediaCodec_getOutputFormat(sys->decoder);
+        if (!newFormat)
+        {
+            WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_getOutputFormat failed after format change");
+            return -1;
+        }
+
+        int32_t newWidth = 0, newHeight = 0;
+        if (!sys->fnAMediaFormat_getInt32(newFormat, sys->gAMediaFormatKeyWidth, &newWidth))
+        {
+            WLog_Print(h264->log, WLOG_ERROR, "Failed to get width from output format");
+            sys->fnAMediaFormat_delete(newFormat);
+            return -1;
+        }
+        if (!sys->fnAMediaFormat_getInt32(newFormat, sys->gAMediaFormatKeyHeight, &newHeight))
+        {
+            WLog_Print(h264->log, WLOG_ERROR, "Failed to get height from output format");
+            sys->fnAMediaFormat_delete(newFormat);
+            return -1;
+        }
+
+        if (newWidth != sys->width || newHeight != sys->height)
+        {
+            sys->width = newWidth;
+            sys->height = newHeight;
+            WLog_Print(h264->log, WLOG_INFO, "Resolution changed to %dx%d", sys->width, sys->height);
+        }
+
+        if (sys->outputFormat)
+        {
+            sys->fnAMediaFormat_delete(sys->outputFormat);
+            sys->outputFormat = NULL;
+        }
+        sys->outputFormat = newFormat;
+
+        outputBufferId = sys->fnAMediaCodec_dequeueOutputBuffer(sys->decoder, &bufferInfo, 5000);
+        if (outputBufferId == AMEDIACODEC_INFO_TRY_AGAIN_LATER)
+        {
+            return 0;
+        }
+        else if (outputBufferId < 0)
+        {
+            WLog_Print(h264->log, WLOG_ERROR, "dequeueOutputBuffer after format change failed: %zd", outputBufferId);
+            return -1;
+        }
+    }
+    else if (outputBufferId < 0)
+    {
+        WLog_Print(h264->log, WLOG_ERROR, "dequeueOutputBuffer returned unknown value: %zd", outputBufferId);
+        return -1;
+    }
+
+    outputBuffer = sys->fnAMediaCodec_getOutputBuffer(sys->decoder, outputBufferId, &outputBufferSize);
+    if (!outputBuffer)
+    {
+        WLog_Print(h264->log, WLOG_ERROR, "getOutputBuffer failed");
+        sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
+        return -1;
+    }
+
+    if (sys->cachedOutputBufferSize < outputBufferSize)
+    {
+        if (sys->cachedOutputBuffer)
+            free(sys->cachedOutputBuffer);
+        sys->cachedOutputBuffer = malloc(outputBufferSize);
+        if (!sys->cachedOutputBuffer)
+        {
+            WLog_Print(h264->log, WLOG_ERROR, "Failed to allocate output buffer");
+            sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
+            return -1;
+        }
+        sys->cachedOutputBufferSize = outputBufferSize;
+    }
+
+    memcpy(sys->cachedOutputBuffer, outputBuffer, outputBufferSize);
+
+    iStride[0] = sys->width;
+    iStride[1] = (sys->width + 1) / 2;
+    iStride[2] = (sys->width + 1) / 2;
+
+    pYUVData[0] = sys->cachedOutputBuffer;
+    pYUVData[1] = sys->cachedOutputBuffer + (iStride[0] * sys->height);
+    pYUVData[2] = pYUVData[1] + (iStride[1] * ((sys->height + 1) / 2));
+
+    sys->currentOutputBufferIndex = outputBufferId;
+
     return 1;
+
+    EXCEPTION:
+    if (sys->decoder)
+    {
+        sys->fnAMediaCodec_stop(sys->decoder);
+        sys->fnAMediaCodec_delete(sys->decoder);
+        sys->decoder = NULL;
+    }
+    if (sys->inputFormat)
+    {
+        sys->fnAMediaFormat_delete(sys->inputFormat);
+        sys->inputFormat = NULL;
+    }
+    if (sys->outputFormat)
+    {
+        sys->fnAMediaFormat_delete(sys->outputFormat);
+        sys->outputFormat = NULL;
+    }
+    return -1;
 }
 
 static void mediacodec_uninit(H264_CONTEXT* h264)
@@ -503,7 +579,7 @@ static void mediacodec_uninit(H264_CONTEXT* h264)
     if (!sys)
         return;
 
-    if (sys->decoder != NULL)
+    if (sys->decoder)
     {
         release_current_outputbuffer(h264);
         status = sys->fnAMediaCodec_stop(sys->decoder);
@@ -524,6 +600,13 @@ static void mediacodec_uninit(H264_CONTEXT* h264)
     set_mediacodec_format(h264, &sys->inputFormat, NULL);
     set_mediacodec_format(h264, &sys->outputFormat, NULL);
 
+    if (sys->cachedOutputBuffer)
+    {
+        free(sys->cachedOutputBuffer);
+        sys->cachedOutputBuffer = NULL;
+        sys->cachedOutputBufferSize = 0;
+    }
+
     unload_libmediandk(h264);
 
     free(sys);
@@ -533,128 +616,50 @@ static void mediacodec_uninit(H264_CONTEXT* h264)
 static BOOL mediacodec_init(H264_CONTEXT* h264)
 {
     H264_CONTEXT_MEDIACODEC* sys;
-    media_status_t status;
-    const char* media_format;
-    char* codec_name;
-    AMediaFormat *inputFormat, *outputFormat;
 
     WINPR_ASSERT(h264);
+
+    // 在 h264_context_init() 中添加（或在你调用 H264_CONTEXT 的地方）
+    h264->width = 640;
+    h264->height = 480;
+    h264->FrameRate = 30;
+    h264->BitRate = 5000000;
 
     if (h264->Compressor)
     {
         WLog_Print(h264->log, WLOG_ERROR, "MediaCodec is not supported as an encoder");
-        goto EXCEPTION;
+        return FALSE;
     }
 
-    WLog_Print(h264->log, WLOG_DEBUG, "Initializing MediaCodec");
+    WLog_Print(h264->log, WLOG_DEBUG, "MediaCodec: Initializing context (lazy init)");
 
     sys = (H264_CONTEXT_MEDIACODEC*)calloc(1, sizeof(H264_CONTEXT_MEDIACODEC));
-
     if (!sys)
-    {
-        goto EXCEPTION;
-    }
+        return FALSE;
 
     h264->pSystemData = (void*)sys;
 
     if (load_libmediandk(h264) < 0)
     {
-        goto EXCEPTION;
+        free(sys);
+        h264->pSystemData = NULL;
+        return FALSE;
     }
 
     sys->currentOutputBufferIndex = -1;
-    sys->width = sys->height = 0; // update when we're given the height and width
-    sys->decoder = sys->fnAMediaCodec_createDecoderByType("video/avc");
-    if (sys->decoder == NULL)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_createCodecByName failed");
-        goto EXCEPTION;
-    }
+    sys->width = sys->height = 0;
+    sys->lastWidth = sys->lastHeight = -1;
+    sys->formatChanged = FALSE;
+    sys->cachedOutputBuffer = NULL;
+    sys->cachedOutputBufferSize = 0;
 
-    status = sys->fnAMediaCodec_getName(sys->decoder, &codec_name);
-    if (status != AMEDIA_OK)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_getName failed: %d", status);
-        goto EXCEPTION;
-    }
+    // ✅ 不创建解码器！延迟到第一次解码时创建
+    sys->decoder = NULL;
+    sys->inputFormat = NULL;
+    sys->outputFormat = NULL;
 
-    WLog_Print(h264->log, WLOG_DEBUG, "MediaCodec using video/avc codec [%s]", codec_name);
-    sys->fnAMediaCodec_releaseName(sys->decoder, codec_name);
-
-    sys->inputFormat = sys->fnAMediaFormat_new();
-    if (sys->inputFormat == NULL)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaFormat_new failed");
-        goto EXCEPTION;
-    }
-
-    sys->fnAMediaFormat_setString(sys->inputFormat, sys->gAMediaFormatKeyMime, "video/avc");
-    sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyWidth, 320);
-    sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyHeight, 480);
-    sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyFrameRate, 60);
-    sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyBitRate, 10000000);
-    sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat,
-                                 COLOR_FormatYUV420Flexible);
-
-    media_format = sys->fnAMediaFormat_toString(sys->inputFormat);
-    if (media_format == NULL)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaFormat_toString failed");
-        goto EXCEPTION;
-    }
-
-    status = sys->fnAMediaCodec_configure(sys->decoder, sys->inputFormat, NULL, NULL, 0);
-    if (status != AMEDIA_OK)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_configure failed: %d", status);
-        goto EXCEPTION;
-    }
-
-    inputFormat = sys->fnAMediaCodec_getInputFormat(sys->decoder);
-    if (inputFormat == NULL)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_getInputFormat failed");
-        goto EXCEPTION;
-    }
-    set_mediacodec_format(h264, &sys->inputFormat, inputFormat);
-
-    media_format = sys->fnAMediaFormat_toString(sys->inputFormat);
-    if (media_format == NULL)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaFormat_toString failed");
-        goto EXCEPTION;
-    }
-    WLog_Print(h264->log, WLOG_DEBUG, "Using MediaCodec with input MediaFormat [%s]", media_format);
-
-    outputFormat = sys->fnAMediaCodec_getOutputFormat(sys->decoder);
-    if (outputFormat == NULL)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_getOutputFormat failed");
-        goto EXCEPTION;
-    }
-    set_mediacodec_format(h264, &sys->outputFormat, outputFormat);
-
-    media_format = sys->fnAMediaFormat_toString(sys->outputFormat);
-    if (media_format == NULL)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaFormat_toString failed");
-        goto EXCEPTION;
-    }
-    WLog_Print(h264->log, WLOG_DEBUG, "Using MediaCodec with output MediaFormat [%s]",
-               media_format);
-
-    WLog_Print(h264->log, WLOG_DEBUG, "Starting MediaCodec");
-    status = sys->fnAMediaCodec_start(sys->decoder);
-    if (status != AMEDIA_OK)
-    {
-        WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_start failed %d", status);
-        goto EXCEPTION;
-    }
-
+    WLog_Print(h264->log, WLOG_DEBUG, "MediaCodec context created, waiting for valid width/height");
     return TRUE;
-    EXCEPTION:
-    mediacodec_uninit(h264);
-    return FALSE;
 }
 
 H264_CONTEXT_SUBSYSTEM g_Subsystem_mediacodec = { "MediaCodec", mediacodec_init, mediacodec_uninit,
