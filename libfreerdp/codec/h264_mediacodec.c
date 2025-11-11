@@ -335,6 +335,16 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
         sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyBitRate, h264->BitRate);
         sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat, COLOR_FormatYUV420Planar);
 
+        // ✅ 高通（QCOM）高性能解码扩展
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, "vendor.qti-ext-video-decoding-profile", 3);
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, "vendor.qti-ext-video-decoding-speed", 2);
+
+        // ✅ 联发科（MTK）高性能模式
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, "mtk-ext-decoding-mode", 1);
+
+        // ✅ 华为（HUAWEI）加速
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, "huawei-ext-decoding-speed", 2);
+
         // 性能优化：允许B帧，周期性关键帧（平衡性能与完整性）
         sys->fnAMediaFormat_setInt32(sys->inputFormat, "max-b-frames", 2);    // 允许2个B帧
         sys->fnAMediaFormat_setInt32(sys->inputFormat, "keyint", 30);         // 每30帧一个关键帧
