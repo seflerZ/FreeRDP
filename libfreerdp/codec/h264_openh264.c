@@ -212,7 +212,7 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
 		sys->EncParamExt.iSpatialLayerNum = 1;
         sys->EncParamExt.iLoopFilterDisableIdc = 1;
         sys->EncParamExt.iNumRefFrame = 0;
-		sys->EncParamExt.iMultipleThreadIdc = (int)h264->NumberOfThreads * 2;
+		sys->EncParamExt.iMultipleThreadIdc = 3;
 		sys->EncParamExt.sSpatialLayers[0].fFrameRate = h264->FrameRate;
 		sys->EncParamExt.sSpatialLayers[0].iVideoWidth = sys->EncParamExt.iPicWidth;
 		sys->EncParamExt.sSpatialLayers[0].iVideoHeight = sys->EncParamExt.iPicHeight;
