@@ -10,7 +10,7 @@ function build {
 	BASE=$(pwd)
 	common_run cd $BUILD_SRC
 	PATH=$ANDROID_NDK:$PATH
-	MAKE="make PATH=$PATH ENABLEPIC=Yes OS=android ENABLE_ASM=1 CFLAGS=\"-O3 -mavx2\" ANDROID_STL=libc++_shared NDKROOT=$OPENH264_NDK NDK_TOOLCHAIN_VERSION=clang TARGET=android-$2 NDKLEVEL=$2 ARCH=$1 -j libraries"
+	MAKE="make PATH=$PATH ENABLEPIC=Yes OS=android ENABLE_ASM=1 ANDROID_STL=libc++_shared NDKROOT=$OPENH264_NDK NDK_TOOLCHAIN_VERSION=clang TARGET=android-$2 NDKLEVEL=$2 ARCH=$1 -j libraries"
 
 	common_run export QUIET_AR="$CCACHE "
 	common_run export QUIET_ASM="$CCACHE "
