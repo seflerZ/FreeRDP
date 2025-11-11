@@ -202,6 +202,9 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
 		}
 
 		sys->EncParamExt.iUsageType = SCREEN_CONTENT_REAL_TIME;
+        sys->EncParamExt.iComplexityMode = LOW_COMPLEXITY;      // 添加这一行！
+        sys->EncParamExt.iLoopFilterDisableIdc = 1;             // 保持，减少处理开销
+
 		sys->EncParamExt.iPicWidth = (int)h264->width;
 		sys->EncParamExt.iPicHeight = (int)h264->height;
 		sys->EncParamExt.fMaxFrameRate = (int)h264->FrameRate;
@@ -214,6 +217,7 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
         sys->EncParamExt.iLoopFilterDisableIdc = 1;
         sys->EncParamExt.iNumRefFrame = 2;          // 至少 2 个参考帧
         sys->EncParamExt.bEnableLongTermReference = 1; // 启用长期参考帧
+        sys->EncParamExt.iMultipleThreadIdc = 2;
 		sys->EncParamExt.sSpatialLayers[0].fFrameRate = h264->FrameRate;
 		sys->EncParamExt.sSpatialLayers[0].iVideoWidth = sys->EncParamExt.iPicWidth;
 		sys->EncParamExt.sSpatialLayers[0].iVideoHeight = sys->EncParamExt.iPicHeight;
