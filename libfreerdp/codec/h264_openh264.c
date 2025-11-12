@@ -208,7 +208,7 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
 
         sys->EncParamExt.iPicWidth = (int)h264->width;
         sys->EncParamExt.iPicHeight = (int)h264->height;
-        sys->EncParamExt.fMaxFrameRate = (int)h264->FrameRate;  // 强制 60fps 目标
+        sys->EncParamExt.fMaxFrameRate = (int)h264->FrameRate;
 
         sys->EncParamExt.iTargetBitrate = (int)h264->BitRate;  // 目标码率
         sys->EncParamExt.iMaxBitrate = (int)h264->BitRate;     // 最大码率（与目标一致，避免波动）
