@@ -201,26 +201,41 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
 			return status;
 		}
 
-		sys->EncParamExt.iUsageType = SCREEN_CONTENT_REAL_TIME;
-        sys->EncParamExt.iComplexityMode = LOW_COMPLEXITY;      // 添加这一行！
-        sys->EncParamExt.iLoopFilterDisableIdc = 1;             // 保持，减少处理开销
+        sys->EncParamExt.iUsageType = SCREEN_CONTENT_REAL_TIME;
+        sys->EncParamExt.iComplexityMode = LOW_COMPLEXITY;  // 优先保证速度
+        sys->EncParamExt.iEntropyCodingModeFlag = 0;  // CAVLC 低延迟模式
+        sys->EncParamExt.iLoopFilterDisableIdc = 1;  // 关闭环路滤波，加速编码
 
-		sys->EncParamExt.iPicWidth = (int)h264->width;
-		sys->EncParamExt.iPicHeight = (int)h264->height;
-		sys->EncParamExt.fMaxFrameRate = (int)h264->FrameRate;
-		sys->EncParamExt.iMaxBitrate = (int)h264->BitRate;;
-		sys->EncParamExt.bEnableDenoise = 0;
-        sys->EncParamExt.uiIntraPeriod = 60;
-		sys->EncParamExt.bEnableLongTermReference = 0;
-		sys->EncParamExt.bEnableFrameSkip = 1;
-		sys->EncParamExt.iSpatialLayerNum = 1;
-        sys->EncParamExt.iLoopFilterDisableIdc = 1;
-        sys->EncParamExt.iNumRefFrame = 2;
-        sys->EncParamExt.iMultipleThreadIdc = 2;
-		sys->EncParamExt.sSpatialLayers[0].fFrameRate = h264->FrameRate;
-		sys->EncParamExt.sSpatialLayers[0].iVideoWidth = sys->EncParamExt.iPicWidth;
-		sys->EncParamExt.sSpatialLayers[0].iVideoHeight = sys->EncParamExt.iPicHeight;
-		sys->EncParamExt.sSpatialLayers[0].iMaxSpatialBitrate = sys->EncParamExt.iMaxBitrate;
+        sys->EncParamExt.iPicWidth = (int)h264->width;
+        sys->EncParamExt.iPicHeight = (int)h264->height;
+        sys->EncParamExt.fMaxFrameRate = (float)h264->FrameRate;
+        sys->EncParamExt.iTargetBitrate = (int)h264->BitRate;  // 目标码率
+        sys->EncParamExt.iMaxBitrate = (int)h264->BitRate;
+        sys->EncParamExt.iMaxIntraBitrate = (int)(h264->BitRate * 2.5);  // 限制 I 帧峰值
+
+        sys->EncParamExt.bEnableDenoise = 0;  // 屏幕内容无需去噪
+        sys->EncParamExt.uiIntraPeriod = 30;  // 0.5 秒一个 I 帧
+        sys->EncParamExt.bEnableLongTermReference = 0;  // 关闭长参考帧
+        sys->EncParamExt.bEnableFrameSkip = 1;
+        sys->EncParamExt.iFrameSkipThreshold = 10;  // 低延迟丢帧阈值
+        sys->EncParamExt.iSpatialLayerNum = 1;  // 单图层足够
+        sys->EncParamExt.iNumRefFrame = 1;  // 减少参考帧延迟
+        sys->EncParamExt.iMultipleThreadIdc = 2;  // 帧级多线程（4 核+）
+        sys->EncParamExt.iNumThreads = 4;  // 绑定线程数（根据 CPU 调整）
+
+        // 屏幕内容专用优化
+        sys->EncParamExt.bEnableSce = 1;
+        sys->EncParamExt.bEnablePal = 1;
+        sys->EncParamExt.bEnableTile = 0;
+
+        // 其他低延迟配置
+        sys->EncParamExt.iAdaptiveQuant = 0;
+        sys->EncParamExt.iRateControlMode = RC_ABR;
+
+        sys->EncParamExt.sSpatialLayers[0].fFrameRate = 60;
+        sys->EncParamExt.sSpatialLayers[0].iVideoWidth = sys->EncParamExt.iPicWidth;
+        sys->EncParamExt.sSpatialLayers[0].iVideoHeight = sys->EncParamExt.iPicHeight;
+        sys->EncParamExt.sSpatialLayers[0].iMaxSpatialBitrate = sys->EncParamExt.iMaxBitrate;
 
 		switch (h264->RateControlMode)
 		{
