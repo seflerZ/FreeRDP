@@ -212,7 +212,6 @@ static int openh264_compress(H264_CONTEXT* h264, const BYTE** pYUVData, const UI
 
         sys->EncParamExt.iTargetBitrate = (int)h264->BitRate;  // 目标码率
         sys->EncParamExt.iMaxBitrate = (int)h264->BitRate;     // 最大码率（与目标一致，避免波动）
-        sys->EncParamExt.iRateControlMode = RC_ABR;  // 2.5.0 支持 ABR 模式，稳定码率
 
         sys->EncParamExt.uiIntraPeriod = 30;  // 60fps 下 0.5 秒一个 I 帧（2.5.0 支持）
         sys->EncParamExt.iNumRefFrame = 1;    // 仅 1 个参考帧，减少缓存延迟（2.5.0 支持）
