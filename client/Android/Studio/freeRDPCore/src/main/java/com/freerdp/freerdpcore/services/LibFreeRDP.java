@@ -315,7 +315,7 @@ public class LibFreeRDP
 		args.add(addFlag("async-update", true));
 		args.add(addFlag("bitmap-cache", true));
 		args.add(addFlag("async-channels", true));
-		args.add(addFlag("compression", true));
+		args.add(addFlag("compression", false));
 
 		args.add(addFlag("wallpaper", bookmark.getPerformanceFlags().getWallpaper()));
 		args.add(addFlag("window-drag", bookmark.getPerformanceFlags().getFullWindowDrag()));
