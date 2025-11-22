@@ -355,30 +355,30 @@ public class LibFreeRDP
 //		args.add("/network:auto");
 
 		// Gateway enabled?
-		if (bookmark.getType() == BookmarkBase.TYPE_MANUAL &&
-		    bookmark.<ManualBookmark>get().getEnableGatewaySettings())
-		{
-			ManualBookmark.GatewaySettings gateway =
-			    bookmark.<ManualBookmark>get().getGatewaySettings();
-
-			args.add(String.format("/g:%s:%d", gateway.getHostname(), gateway.getPort()));
-
-			arg = gateway.getUsername();
-			if (!arg.isEmpty())
-			{
-				args.add("/gu:" + arg);
-			}
-			arg = gateway.getDomain();
-			if (!arg.isEmpty())
-			{
-				args.add("/gd:" + arg);
-			}
-			arg = gateway.getPassword();
-			if (!arg.isEmpty())
-			{
-				args.add("/gp:" + arg);
-			}
-		}
+//		if (bookmark.getType() == BookmarkBase.TYPE_MANUAL &&
+//		    bookmark.<ManualBookmark>get().getEnableGatewaySettings())
+//		{
+//			ManualBookmark.GatewaySettings gateway =
+//			    bookmark.<ManualBookmark>get().getGatewaySettings();
+//
+//			args.add(String.format("/g:%s:%d", gateway.getHostname(), gateway.getPort()));
+//
+//			arg = gateway.getUsername();
+//			if (!arg.isEmpty())
+//			{
+//				args.add("/gu:" + arg);
+//			}
+//			arg = gateway.getDomain();
+//			if (!arg.isEmpty())
+//			{
+//				args.add("/gd:" + arg);
+//			}
+//			arg = gateway.getPassword();
+//			if (!arg.isEmpty())
+//			{
+//				args.add("/gp:" + arg);
+//			}
+//		}
 
 		/* 0 ... local
 		   1 ... remote
@@ -396,7 +396,7 @@ public class LibFreeRDP
 
 		//args.add("/cert-ignore");
 //		args.add("/log-level:" + debug.getDebugLevel());
-		String[] arrayArgs = args.toArray(new String[args.size()]);
+		String[] arrayArgs = args.toArray(new String[0]);
 		return freerdp_parse_arguments(inst, arrayArgs);
 	}
 
@@ -436,7 +436,7 @@ public class LibFreeRDP
 		{
 			String value = openUri.getQueryParameter(key);
 
-			if (value.isEmpty())
+            if (value == null || value.isEmpty())
 			{
 				// Query: key=
 				// To freerdp argument: /key
