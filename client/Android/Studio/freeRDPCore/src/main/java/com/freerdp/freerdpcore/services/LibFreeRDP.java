@@ -297,9 +297,9 @@ public class LibFreeRDP
 
 		if (mHasH264)
 		{
-			args.add("/gfx:avc444");
-			args.add("/gfx-progressive");
-			args.add("/frame-ack:yes");
+			args.add("/gfx:avc420");
+//			args.add("/gfx-progressive");
+			args.add("/frame-ack:no");
 		} else {
 			args.add("/gfx");
 		}
@@ -311,8 +311,8 @@ public class LibFreeRDP
 
 //		args.add(addFlag("auto-reconnect", true));
 		args.add(addFlag("fast-path", true));
-		args.add(addFlag("async-input", true));
-		args.add(addFlag("async-update", true));
+		args.add(addFlag("async-input", false));
+		args.add(addFlag("async-update", false));
 		args.add(addFlag("bitmap-cache", true));
 		args.add(addFlag("async-channels", true));
 		args.add(addFlag("compression", false));
