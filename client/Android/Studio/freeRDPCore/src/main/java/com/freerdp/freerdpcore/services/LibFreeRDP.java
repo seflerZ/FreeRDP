@@ -297,9 +297,9 @@ public class LibFreeRDP
 
 		if (mHasH264)
 		{
-			args.add("/gfx:avc420");
+			args.add("/gfx:avc444");
 //			args.add("/gfx-progressive");
-			args.add("/frame-ack:no");
+			args.add("/frame-ack:yes");
 		} else {
 			args.add("/gfx");
 		}
