@@ -299,7 +299,7 @@ public class LibFreeRDP
 		{
 			args.add("/gfx:avc444");
 			args.add("/gfx-progressive");
-			args.add("/frame-ack:yes");
+			args.add("/frame-ack:no");
 		} else {
 			args.add("/gfx");
 		}
