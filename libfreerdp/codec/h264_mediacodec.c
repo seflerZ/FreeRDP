@@ -87,6 +87,7 @@ typedef void (*AMediaCodec_releaseName_t)(AMediaCodec*, char*);
 typedef AMediaFormat* (*AMediaCodec_getInputFormat_t)(AMediaCodec*);
 
 const int COLOR_FormatYUV420Planar = 19;
+const int COLOR_FormatYUV444Planar = 20;
 const int COLOR_FormatYUV420Flexible = 0x7f420888;
 
 struct _H264_CONTEXT_MEDIACODEC
@@ -333,7 +334,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
         sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyHeight, alignedHeight);
         sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyFrameRate, h264->FrameRate);
         sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyBitRate, h264->BitRate);
-        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat, COLOR_FormatYUV420Planar);
+        sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat, COLOR_FormatYUV444Planar);
 
         // ✅ 高通（QCOM）高性能解码扩展
         sys->fnAMediaFormat_setInt32(sys->inputFormat, "vendor.qti-ext-video-decoding-profile", 3);
