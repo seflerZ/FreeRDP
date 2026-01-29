@@ -218,9 +218,9 @@ static BOOL android_pre_connect(freerdp* instance)
     if (!settings)
         return FALSE;
 
-    // Enable RDPEI channel for touch support
-    settings->SupportRDPGEv2 = TRUE;
-    settings->SupportRDPEI = TRUE;
+    // Enable multi-touch support for touch events
+    settings->MultiTouchInput = TRUE;
+    settings->MultiTouchGestures = TRUE;
 
     rc = PubSub_SubscribeChannelConnected(instance->context->pubSub,
                                           android_OnChannelConnectedEventHandler);
