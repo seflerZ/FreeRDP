@@ -132,6 +132,8 @@ public class LibFreeRDP
 
 	private static native boolean freerdp_send_cursor_event(long inst, int x, int y, int flags);
 
+    private static native boolean freerdp_send_touch_event(long inst, int x, int y, int flags, int contactId);
+
 	private static native boolean freerdp_send_key_event(long inst, int keycode, boolean down);
 
 	private static native boolean freerdp_send_unicodekey_event(long inst, int keycode,
@@ -354,32 +356,6 @@ public class LibFreeRDP
 		args.add("/clipboard");
 //		args.add("/network:auto");
 
-		// Gateway enabled?
-//		if (bookmark.getType() == BookmarkBase.TYPE_MANUAL &&
-//		    bookmark.<ManualBookmark>get().getEnableGatewaySettings())
-//		{
-//			ManualBookmark.GatewaySettings gateway =
-//			    bookmark.<ManualBookmark>get().getGatewaySettings();
-//
-//			args.add(String.format("/g:%s:%d", gateway.getHostname(), gateway.getPort()));
-//
-//			arg = gateway.getUsername();
-//			if (!arg.isEmpty())
-//			{
-//				args.add("/gu:" + arg);
-//			}
-//			arg = gateway.getDomain();
-//			if (!arg.isEmpty())
-//			{
-//				args.add("/gd:" + arg);
-//			}
-//			arg = gateway.getPassword();
-//			if (!arg.isEmpty())
-//			{
-//				args.add("/gp:" + arg);
-//			}
-//		}
-
 		/* 0 ... local
 		   1 ... remote
 		   2 ... disable */
@@ -481,6 +457,11 @@ public class LibFreeRDP
 	public static boolean sendKeyEvent(long inst, int keycode, boolean down)
 	{
 		return freerdp_send_key_event(inst, keycode, down);
+	}
+
+	public static boolean sendTouchEvent(long inst, int x, int y, int flags, int contactId)
+	{
+		return freerdp_send_touch_event(inst, x, y, flags, contactId);
 	}
 
 	public static boolean sendUnicodeKeyEvent(long inst, int keycode, boolean down)
@@ -638,6 +619,21 @@ public class LibFreeRDP
 	public static String getVersion()
 	{
 		return freerdp_get_version();
+	}
+
+	// 添加一个简单的触摸ID管理器
+	private static int nextTouchId = 1;
+	private static final Object touchIdLock = new Object();
+
+	public static int getNextTouchId() {
+		synchronized(touchIdLock) {
+			int id = nextTouchId++;
+			// 重置ID以避免整数溢出（虽然实际情况下不太可能发生）
+			if (nextTouchId > 10000) {
+				nextTouchId = 1;
+			}
+			return id;
+		}
 	}
 
 	public static interface EventListener {

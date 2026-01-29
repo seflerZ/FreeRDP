@@ -18,6 +18,7 @@
 
 #include <freerdp/freerdp.h>
 #include <freerdp/client/cliprdr.h>
+#include <freerdp/client/rdpei.h>
 
 #include "android_event.h"
 
@@ -38,6 +39,9 @@ struct android_context
 	CLIPRDR_FORMAT* serverFormats;
 	CliprdrClientContext* cliprdr;
 	UINT32 clipboardCapabilities;
+	
+	/* RDPEI (Remote Desktop Protocol Input) context for touch support */
+	RdpeiClientContext* rdpei;
 };
 typedef struct android_context androidContext;
 

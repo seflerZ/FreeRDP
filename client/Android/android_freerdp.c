@@ -59,6 +59,9 @@
 /* Defines the JNI version supported by this library. */
 #define FREERDP_JNI_VERSION "2.11.8-dev"
 
+/* Touch contact ID management */
+static int g_next_contact_id = 1;
+
 static void android_OnChannelConnectedEventHandler(void* context, ChannelConnectedEventArgs* e)
 {
 	rdpSettings* settings;
@@ -202,43 +205,49 @@ static BOOL android_desktop_resize(rdpContext* context)
 
 static BOOL android_pre_connect(freerdp* instance)
 {
-	int rc;
-	rdpSettings* settings;
+    int rc;
+    rdpSettings* settings;
+    androidContext* ctx;
 
-	if (!instance)
-		return FALSE;
+    if (!instance)
+        return FALSE;
 
-	settings = instance->settings;
+    ctx = (androidContext*)instance->context;
+    settings = instance->settings;
 
-	if (!settings)
-		return FALSE;
+    if (!settings)
+        return FALSE;
 
-	rc = PubSub_SubscribeChannelConnected(instance->context->pubSub,
-	                                      android_OnChannelConnectedEventHandler);
+    // Enable RDPEI channel for touch support
+    settings->SupportRDPGEv2 = TRUE;
+    settings->SupportRDPEI = TRUE;
 
-	if (rc != CHANNEL_RC_OK)
-	{
-		WLog_ERR(TAG, "Could not subscribe to connect event handler [%l08X]", rc);
-		return FALSE;
-	}
+    rc = PubSub_SubscribeChannelConnected(instance->context->pubSub,
+                                          android_OnChannelConnectedEventHandler);
 
-	rc = PubSub_SubscribeChannelDisconnected(instance->context->pubSub,
-	                                         android_OnChannelDisconnectedEventHandler);
+    if (rc != CHANNEL_RC_OK)
+    {
+        WLog_ERR(TAG, "Could not subscribe to connect event handler [%l08X]", rc);
+        return FALSE;
+    }
 
-	if (rc != CHANNEL_RC_OK)
-	{
-		WLog_ERR(TAG, "Could not subscribe to disconnect event handler [%l08X]", rc);
-		return FALSE;
-	}
+    rc = PubSub_SubscribeChannelDisconnected(instance->context->pubSub,
+                                             android_OnChannelDisconnectedEventHandler);
 
-	if (!freerdp_client_load_addins(instance->context->channels, instance->settings))
-	{
-		WLog_ERR(TAG, "Failed to load addins [%l08X]", GetLastError());
-		return FALSE;
-	}
+    if (rc != CHANNEL_RC_OK)
+    {
+        WLog_ERR(TAG, "Could not subscribe to disconnect event handler [%l08X]", rc);
+        return FALSE;
+    }
 
-	freerdp_callback("OnPreConnect", "(J)V", (jlong)instance);
-	return TRUE;
+    if (!freerdp_client_load_addins(instance->context->channels, instance->settings))
+    {
+        WLog_ERR(TAG, "Failed to load addins [%l08X]", GetLastError());
+        return FALSE;
+    }
+
+    freerdp_callback("OnPreConnect", "(J)V", (jlong)instance);
+    return TRUE;
 }
 
 static BOOL android_Pointer_New(rdpContext* context, rdpPointer* pointer)
@@ -1018,6 +1027,42 @@ static jboolean JNICALL jni_freerdp_send_cursor_event(JNIEnv* env, jclass cls, j
 	return JNI_TRUE;
 }
 
+static jboolean JNICALL jni_freerdp_send_touch_event(JNIEnv* env, jclass cls, jlong instance,
+jint x, jint y, jint flags, jint contactId)
+{
+    freerdp* inst = (freerdp*)instance;
+    androidContext* ctx = (androidContext*)inst->context;
+    RdpeiClientContext* rdpei = ctx->rdpei;
+
+    if (!rdpei)
+    {
+    WLog_WARN(TAG, "Touch event ignored, RDPEI channel not initialized");
+    return JNI_FALSE;
+    }
+
+    WLog_DBG(TAG, "send_touch_event: (%d, %d), flags=%d, contactId=%d", x, y, flags, contactId);
+
+    if (flags & CONTACT_FLAG_DOWN)
+    {
+        return rdpei->TouchBegin(rdpei, contactId, x, y, NULL) == CHANNEL_RC_OK ? JNI_TRUE : JNI_FALSE;
+    }
+    else if (flags & CONTACT_FLAG_UPDATE)
+    {
+        return rdpei->TouchUpdate(rdpei, contactId, x, y, NULL) == CHANNEL_RC_OK ? JNI_TRUE : JNI_FALSE;
+    }
+    else if (flags & CONTACT_FLAG_UP)
+    {
+        return rdpei->TouchEnd(rdpei, contactId, x, y, NULL) == CHANNEL_RC_OK ? JNI_TRUE : JNI_FALSE;
+    }
+    else if (flags & CONTACT_FLAG_CANCELED)
+    {
+        // For canceled events, we'll treat them as an end event
+        return rdpei->TouchEnd(rdpei, contactId, x, y, NULL) == CHANNEL_RC_OK ? JNI_TRUE : JNI_FALSE;
+    }
+
+    return JNI_FALSE;
+}
+
 static jboolean JNICALL jni_freerdp_send_clipboard_data(JNIEnv* env, jclass cls, jlong instance,
                                                         jstring jdata)
 {
@@ -1097,6 +1142,7 @@ static JNINativeMethod methods[] = {
 	{ "freerdp_update_graphics", "(JLandroid/graphics/Bitmap;IIII)Z",
 	  &jni_freerdp_update_graphics },
 	{ "freerdp_send_cursor_event", "(JIII)Z", &jni_freerdp_send_cursor_event },
+	{ "freerdp_send_touch_event", "(JIIII)Z", &jni_freerdp_send_touch_event },
 	{ "freerdp_send_key_event", "(JIZ)Z", &jni_freerdp_send_key_event },
 	{ "freerdp_send_unicodekey_event", "(JIZ)Z", &jni_freerdp_send_unicodekey_event },
 	{ "freerdp_send_clipboard_data", "(JLjava/lang/String;)Z", &jni_freerdp_send_clipboard_data },
