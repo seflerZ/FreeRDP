@@ -297,6 +297,9 @@ public class LibFreeRDP
 
 		args.add("/cert:ignore");
 
+		// Enable multi-touch support
+		args.add("/multitouch");
+
 		if (mHasH264)
 		{
 			args.add("/gfx:avc444");

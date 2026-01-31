@@ -92,6 +92,12 @@ static void android_OnChannelConnectedEventHandler(void* context, ChannelConnect
 	{
 		android_cliprdr_init(afc, (CliprdrClientContext*)e->pInterface);
 	}
+	// 添加对 RDPEI 通道的支持
+	else if (strcmp(e->name, RDPEI_DVC_CHANNEL_NAME) == 0)
+	{
+		afc->rdpei = (RdpeiClientContext*)e->pInterface;
+		WLog_DBG(TAG, "RDPEI channel connected and initialized");
+	}
 }
 
 static void android_OnChannelDisconnectedEventHandler(void* context,
@@ -124,6 +130,12 @@ static void android_OnChannelDisconnectedEventHandler(void* context,
 	else if (strcmp(e->name, CLIPRDR_SVC_CHANNEL_NAME) == 0)
 	{
 		android_cliprdr_uninit(afc, (CliprdrClientContext*)e->pInterface);
+	}
+	// 添加对 RDPEI 通道断开连接的支持
+	else if (strcmp(e->name, RDPEI_DVC_CHANNEL_NAME) == 0)
+	{
+		afc->rdpei = NULL;
+		WLog_DBG(TAG, "RDPEI channel disconnected and uninitialized");
 	}
 }
 
@@ -1036,30 +1048,46 @@ jint x, jint y, jint flags, jint contactId)
 
     if (!rdpei)
     {
-    WLog_WARN(TAG, "Touch event ignored, RDPEI channel not initialized");
-    return JNI_FALSE;
+        WLog_WARN(TAG, "Touch event ignored, RDPEI channel not initialized");
+        return JNI_FALSE;
     }
 
-    WLog_DBG(TAG, "send_touch_event: (%d, %d), flags=%d, contactId=%d", x, y, flags, contactId);
+    WLog_DBG(TAG, "send_touch_event: (%d, %d), flags=0x%x, contactId=%d", x, y, flags, contactId);
+
+    UINT32 result = CHANNEL_RC_INITIALIZATION_ERROR; // 默认错误值
+    INT32 actualContactId = contactId;
 
     if (flags & CONTACT_FLAG_DOWN)
     {
-        return rdpei->TouchBegin(rdpei, contactId, x, y, NULL) == CHANNEL_RC_OK ? JNI_TRUE : JNI_FALSE;
+        WLog_DBG(TAG, "Calling TouchBegin with contactId=%d, x=%d, y=%d", contactId, x, y);
+        result = rdpei->TouchBegin(rdpei, contactId, x, y, &actualContactId);
+        WLog_DBG(TAG, "TouchBegin returned: %lu, actualContactId: %d", result, actualContactId);
+        return (result == CHANNEL_RC_OK) ? JNI_TRUE : JNI_FALSE;
     }
     else if (flags & CONTACT_FLAG_UPDATE)
     {
-        return rdpei->TouchUpdate(rdpei, contactId, x, y, NULL) == CHANNEL_RC_OK ? JNI_TRUE : JNI_FALSE;
+        WLog_DBG(TAG, "Calling TouchUpdate with contactId=%d, x=%d, y=%d", contactId, x, y);
+        result = rdpei->TouchUpdate(rdpei, contactId, x, y, &actualContactId);
+        WLog_DBG(TAG, "TouchUpdate returned: %lu, actualContactId: %d", result, actualContactId);
+        return (result == CHANNEL_RC_OK) ? JNI_TRUE : JNI_FALSE;
     }
     else if (flags & CONTACT_FLAG_UP)
     {
-        return rdpei->TouchEnd(rdpei, contactId, x, y, NULL) == CHANNEL_RC_OK ? JNI_TRUE : JNI_FALSE;
+        WLog_DBG(TAG, "Calling TouchEnd with contactId=%d, x=%d, y=%d", contactId, x, y);
+        result = rdpei->TouchEnd(rdpei, contactId, x, y, &actualContactId);
+        WLog_DBG(TAG, "TouchEnd returned: %lu, actualContactId: %d", result, actualContactId);
+        return (result == CHANNEL_RC_OK) ? JNI_TRUE : JNI_FALSE;
     }
     else if (flags & CONTACT_FLAG_CANCELED)
     {
         // For canceled events, we'll treat them as an end event
-        return rdpei->TouchEnd(rdpei, contactId, x, y, NULL) == CHANNEL_RC_OK ? JNI_TRUE : JNI_FALSE;
+        WLog_DBG(TAG, "Calling TouchEnd (for cancel) with contactId=%d, x=%d, y=%d", contactId, x, y);
+        result = rdpei->TouchEnd(rdpei, contactId, x, y, &actualContactId);
+        WLog_DBG(TAG, "TouchEnd (for cancel) returned: %lu, actualContactId: %d", result, actualContactId);
+        return (result == CHANNEL_RC_OK) ? JNI_TRUE : JNI_FALSE;
     }
 
+    WLog_WARN(TAG, "Unknown touch flag: 0x%x", flags);
     return JNI_FALSE;
 }
 
