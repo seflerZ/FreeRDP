@@ -1040,55 +1040,31 @@ static jboolean JNICALL jni_freerdp_send_cursor_event(JNIEnv* env, jclass cls, j
 }
 
 static jboolean JNICALL jni_freerdp_send_touch_event(JNIEnv* env, jclass cls, jlong instance,
-jint x, jint y, jint flags, jint contactId)
+                                                      jint x, jint y, jint flags, jint contactId)
 {
     freerdp* inst = (freerdp*)instance;
-    androidContext* ctx = (androidContext*)inst->context;
-    RdpeiClientContext* rdpei = ctx->rdpei;
-
-    if (!rdpei)
+    ANDROID_EVENT* event;
+    
+    WLog_DBG(TAG, "send_touch_event: (%d, %d), flags=0x%x, contactId=%d", x, y, flags, contactId);
+    
+    // Create touch event and push to queue
+    event = (ANDROID_EVENT*)android_event_touch_new(x, y, flags, contactId);
+    
+    if (!event)
     {
-        WLog_WARN(TAG, "Touch event ignored, RDPEI channel not initialized");
+        WLog_ERR(TAG, "Failed to create touch event");
         return JNI_FALSE;
     }
-
-    WLog_DBG(TAG, "send_touch_event: (%d, %d), flags=0x%x, contactId=%d", x, y, flags, contactId);
-
-    UINT32 result = CHANNEL_RC_INITIALIZATION_ERROR; // 默认错误值
-    INT32 actualContactId = contactId;
-
-    if (flags & CONTACT_FLAG_DOWN)
+    
+    if (!android_push_event(inst, event))
     {
-        WLog_DBG(TAG, "Calling TouchBegin with contactId=%d, x=%d, y=%d", contactId, x, y);
-        result = rdpei->TouchBegin(rdpei, contactId, x, y, &actualContactId);
-        WLog_DBG(TAG, "TouchBegin returned: %lu, actualContactId: %d", result, actualContactId);
-        return (result == CHANNEL_RC_OK) ? JNI_TRUE : JNI_FALSE;
+        WLog_ERR(TAG, "Failed to push touch event to queue");
+        android_event_free(event);
+        return JNI_FALSE;
     }
-    else if (flags & CONTACT_FLAG_UPDATE)
-    {
-        WLog_DBG(TAG, "Calling TouchUpdate with contactId=%d, x=%d, y=%d", contactId, x, y);
-        result = rdpei->TouchUpdate(rdpei, contactId, x, y, &actualContactId);
-        WLog_DBG(TAG, "TouchUpdate returned: %lu, actualContactId: %d", result, actualContactId);
-        return (result == CHANNEL_RC_OK) ? JNI_TRUE : JNI_FALSE;
-    }
-    else if (flags & CONTACT_FLAG_UP)
-    {
-        WLog_DBG(TAG, "Calling TouchEnd with contactId=%d, x=%d, y=%d", contactId, x, y);
-        result = rdpei->TouchEnd(rdpei, contactId, x, y, &actualContactId);
-        WLog_DBG(TAG, "TouchEnd returned: %lu, actualContactId: %d", result, actualContactId);
-        return (result == CHANNEL_RC_OK) ? JNI_TRUE : JNI_FALSE;
-    }
-    else if (flags & CONTACT_FLAG_CANCELED)
-    {
-        // For canceled events, we'll treat them as an end event
-        WLog_DBG(TAG, "Calling TouchEnd (for cancel) with contactId=%d, x=%d, y=%d", contactId, x, y);
-        result = rdpei->TouchEnd(rdpei, contactId, x, y, &actualContactId);
-        WLog_DBG(TAG, "TouchEnd (for cancel) returned: %lu, actualContactId: %d", result, actualContactId);
-        return (result == CHANNEL_RC_OK) ? JNI_TRUE : JNI_FALSE;
-    }
-
-    WLog_WARN(TAG, "Unknown touch flag: 0x%x", flags);
-    return JNI_FALSE;
+    
+    WLog_DBG(TAG, "Touch event queued successfully");
+    return JNI_TRUE;
 }
 
 static jboolean JNICALL jni_freerdp_send_clipboard_data(JNIEnv* env, jclass cls, jlong instance,

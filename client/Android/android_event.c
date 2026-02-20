@@ -125,6 +125,55 @@ static BOOL android_process_event(ANDROID_EVENT_QUEUE* queue, freerdp* inst)
 			android_cliprdr_send_client_format_list(afc->cliprdr);
 			android_event_free((ANDROID_EVENT*)clipboard_event);
 		}
+		else if (event->type == EVENT_TYPE_TOUCH)
+		{
+			ANDROID_EVENT_TOUCH* touch_event = (ANDROID_EVENT_TOUCH*)event;
+			RdpeiClientContext* rdpei = afc->rdpei;
+			
+			if (rdpei)
+			{
+				UINT32 result = CHANNEL_RC_INITIALIZATION_ERROR;
+				INT32 actualContactId = touch_event->contactId;
+				
+				if (touch_event->flags & CONTACT_FLAG_DOWN)
+				{
+					WLog_DBG(TAG, "Processing queued TouchBegin: (%d, %d), contactId=%d", 
+						touch_event->x, touch_event->y, touch_event->contactId);
+					result = rdpei->TouchBegin(rdpei, touch_event->contactId, 
+						touch_event->x, touch_event->y, &actualContactId);
+				}
+				else if (touch_event->flags & CONTACT_FLAG_UPDATE)
+				{
+					WLog_DBG(TAG, "Processing queued TouchUpdate: (%d, %d), contactId=%d", 
+						touch_event->x, touch_event->y, touch_event->contactId);
+					result = rdpei->TouchUpdate(rdpei, touch_event->contactId, 
+						touch_event->x, touch_event->y, &actualContactId);
+				}
+				else if (touch_event->flags & CONTACT_FLAG_UP)
+				{
+					WLog_DBG(TAG, "Processing queued TouchEnd: (%d, %d), contactId=%d", 
+						touch_event->x, touch_event->y, touch_event->contactId);
+					result = rdpei->TouchEnd(rdpei, touch_event->contactId, 
+						touch_event->x, touch_event->y, &actualContactId);
+				}
+				else if (touch_event->flags & CONTACT_FLAG_CANCELED)
+				{
+					WLog_DBG(TAG, "Processing queued TouchCancel: (%d, %d), contactId=%d", 
+						touch_event->x, touch_event->y, touch_event->contactId);
+					result = rdpei->TouchEnd(rdpei, touch_event->contactId, 
+						touch_event->x, touch_event->y, &actualContactId);
+				}
+				
+				WLog_DBG(TAG, "Touch event processed, result: %lu, actualContactId: %d", 
+					result, actualContactId);
+			}
+			else
+			{
+				WLog_WARN(TAG, "RDPEI channel not initialized, dropping touch event");
+			}
+			
+			android_event_free((ANDROID_EVENT*)touch_event);
+		}
 		else if (event->type == EVENT_TYPE_DISCONNECT)
 		{
 			android_event_free(event);
@@ -285,6 +334,27 @@ static void android_event_clipboard_free(ANDROID_EVENT_CLIPBOARD* event)
 	}
 }
 
+ANDROID_EVENT_TOUCH* android_event_touch_new(int x, int y, int flags, int contactId)
+{
+	ANDROID_EVENT_TOUCH* event;
+	event = (ANDROID_EVENT_TOUCH*)calloc(1, sizeof(ANDROID_EVENT_TOUCH));
+
+	if (!event)
+		return NULL;
+
+	event->type = EVENT_TYPE_TOUCH;
+	event->x = x;
+	event->y = y;
+	event->flags = flags;
+	event->contactId = contactId;
+	return event;
+}
+
+static void android_event_touch_free(ANDROID_EVENT_TOUCH* event)
+{
+	free(event);
+}
+
 BOOL android_event_queue_init(freerdp* inst)
 {
 	androidContext* aCtx = (androidContext*)inst->context;
@@ -377,6 +447,10 @@ void android_event_free(ANDROID_EVENT* event)
 
 		case EVENT_TYPE_CLIPBOARD:
 			android_event_clipboard_free((ANDROID_EVENT_CLIPBOARD*)event);
+			break;
+
+		case EVENT_TYPE_TOUCH:
+			android_event_touch_free((ANDROID_EVENT_TOUCH*)event);
 			break;
 
 		default:
