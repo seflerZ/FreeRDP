@@ -32,6 +32,7 @@
 #include <freerdp/client/rdpei.h>
 #include <freerdp/client/rdpgfx.h>
 #include <freerdp/client/cliprdr.h>
+#include <freerdp/client/disp.h>
 #include <freerdp/codec/h264.h>
 #include <freerdp/channels/channels.h>
 #include <freerdp/client/channels.h>
@@ -98,6 +99,12 @@ static void android_OnChannelConnectedEventHandler(void* context, ChannelConnect
 		afc->rdpei = (RdpeiClientContext*)e->pInterface;
 		WLog_DBG(TAG, "RDPEI channel connected and initialized");
 	}
+	// 添加对 DISP 通道的支持
+	else if (strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0)
+	{
+		afc->disp = (DispClientContext*)e->pInterface;
+		WLog_DBG(TAG, "DISP channel connected and initialized");
+	}
 }
 
 static void android_OnChannelDisconnectedEventHandler(void* context,
@@ -136,6 +143,43 @@ static void android_OnChannelDisconnectedEventHandler(void* context,
 	{
 		afc->rdpei = NULL;
 		WLog_DBG(TAG, "RDPEI channel disconnected and uninitialized");
+	}
+	// 添加对 DISP 通道断开连接的支持
+	else if (strcmp(e->name, DISP_DVC_CHANNEL_NAME) == 0)
+	{
+		afc->disp = NULL;
+		WLog_DBG(TAG, "DISP channel disconnected and uninitialized");
+	}
+}
+
+static void android_OnGraphicsResetEventHandler(void* context, GraphicsResetEventArgs* e)
+{
+	androidContext* afc;
+	rdpSettings* settings;
+	
+	WINPR_UNUSED(e);
+	
+	if (!context)
+	{
+		WLog_FATAL(TAG, "%s(context=%p, EventArgs=%p", __FUNCTION__, context, (void*)e);
+		return;
+	}
+	
+	afc = (androidContext*)context;
+	settings = afc->rdpCtx.settings;
+	
+	if (!settings)
+		return;
+	
+	WLog_DBG(TAG, "Handling GraphicsReset event after resolution change");
+	
+	// 当分辨率发生变化后，重新初始化GFX管道
+	if (settings->SoftwareGdi && afc->rdpCtx.gdi)
+	{
+		// 重新初始化软件GDI图形管道
+		gdi_resize(afc->rdpCtx.gdi, settings->DesktopWidth, settings->DesktopHeight);
+		WLog_DBG(TAG, "Reinitialized GDI pipeline for new resolution: %dx%d", 
+		         settings->DesktopWidth, settings->DesktopHeight);
 	}
 }
 
@@ -249,6 +293,16 @@ static BOOL android_pre_connect(freerdp* instance)
     if (rc != CHANNEL_RC_OK)
     {
         WLog_ERR(TAG, "Could not subscribe to disconnect event handler [%l08X]", rc);
+        return FALSE;
+    }
+
+    // 订阅GraphicsReset事件以处理分辨率变化后的GFX重新初始化
+    rc = PubSub_SubscribeGraphicsReset(instance->context->pubSub,
+                                       android_OnGraphicsResetEventHandler);
+
+    if (rc != CHANNEL_RC_OK)
+    {
+        WLog_ERR(TAG, "Could not subscribe to graphics reset event handler [%l08X]", rc);
         return FALSE;
     }
 
@@ -682,10 +736,13 @@ static BOOL android_client_new(freerdp* instance, rdpContext* context)
 
 static void android_client_free(freerdp* instance, rdpContext* context)
 {
-	if (!context)
-		return;
+    if (!context)
+            return;
 
-	android_event_queue_uninit(instance);
+    // 取消订阅GraphicsReset事件
+    PubSub_UnsubscribeGraphicsReset(context->pubSub, android_OnGraphicsResetEventHandler);
+    
+    android_event_queue_uninit(instance);
 }
 
 static int RdpClientEntry(RDP_CLIENT_ENTRY_POINTS* pEntryPoints)
@@ -1130,6 +1187,68 @@ static jstring JNICALL jni_freerdp_get_build_config(JNIEnv* env, jclass cls)
 	return (*env)->NewStringUTF(env, freerdp_get_build_config());
 }
 
+// 实现客户端显示更新功能，用于动态变更服务端分辨率
+BOOL freerdp_send_client_display_update(rdpContext* context, UINT32 width, UINT32 height)
+{
+	androidContext* afc;
+	DISPLAY_CONTROL_MONITOR_LAYOUT layout = { 0 };
+
+	if (!context)
+	{
+		WLog_ERR(TAG, "Invalid context");
+		return FALSE;
+	}
+
+	// 检查disp通道是否已启用
+	if (!context->settings->DynamicResolutionUpdate)
+	{
+		WLog_WARN(TAG, "Dynamic resolution update is not enabled");
+		return FALSE;
+	}
+
+	// 获取android上下文
+	afc = (androidContext*)context;
+
+	// 检查disp上下文是否存在
+	if (!afc->disp)
+	{
+		WLog_ERR(TAG, "DISP channel context not available");
+		return FALSE;
+	}
+
+	// 1. 更新本地设置
+	context->settings->DesktopWidth = width;
+	context->settings->DesktopHeight = height;
+
+	// 2. 构造显示器布局结构
+	layout.Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
+	layout.Left = 0;
+	layout.Top = 0;
+	layout.Width = width;
+	layout.Height = height;
+	layout.PhysicalWidth = width / 75 * 25.4f;  // 转换为毫米
+	layout.PhysicalHeight = height / 75 * 25.4f; // 转换为毫米
+	layout.Orientation = ORIENTATION_LANDSCAPE;
+	layout.DesktopScaleFactor = 100;
+	layout.DeviceScaleFactor = 100;
+
+	// 3. 通过disp通道发送显示器布局
+	return afc->disp->SendMonitorLayout(afc->disp, 1, &layout) == CHANNEL_RC_OK;
+}
+
+static jboolean JNICALL jni_freerdp_send_client_display_update(JNIEnv* env, jclass cls,
+		jlong instance, jint width, jint height)
+{
+	freerdp* inst = (freerdp*)instance;
+	if (!inst || !inst->context)
+	{
+		return JNI_FALSE;
+	}
+
+	// 直接调用核心函数
+	return freerdp_send_client_display_update(inst->context, (UINT32)width, (UINT32)height) ? JNI_TRUE : JNI_FALSE;
+}
+
 static JNINativeMethod methods[] = {
 	{ "freerdp_get_jni_version", "()Ljava/lang/String;", &jni_freerdp_get_jni_version },
 	{ "freerdp_get_version", "()Ljava/lang/String;", &jni_freerdp_get_version },
@@ -1150,6 +1269,7 @@ static JNINativeMethod methods[] = {
 	{ "freerdp_send_key_event", "(JIZ)Z", &jni_freerdp_send_key_event },
 	{ "freerdp_send_unicodekey_event", "(JIZ)Z", &jni_freerdp_send_unicodekey_event },
 	{ "freerdp_send_clipboard_data", "(JLjava/lang/String;)Z", &jni_freerdp_send_clipboard_data },
+	{ "freerdp_send_client_display_update", "(JII)Z", &jni_freerdp_send_client_display_update },
 	{ "freerdp_has_h264", "()Z", &jni_freerdp_has_h264 }
 };
 

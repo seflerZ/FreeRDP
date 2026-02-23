@@ -19,6 +19,7 @@
 #include <freerdp/freerdp.h>
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/client/rdpei.h>
+#include <freerdp/client/disp.h>
 
 #include "android_event.h"
 
@@ -42,6 +43,9 @@ struct android_context
 	
 	/* RDPEI (Remote Desktop Protocol Input) context for touch support */
 	RdpeiClientContext* rdpei;
+	
+	/* DISP (Display Control) context for dynamic resolution updates */
+	DispClientContext* disp;
 };
 typedef struct android_context androidContext;
 

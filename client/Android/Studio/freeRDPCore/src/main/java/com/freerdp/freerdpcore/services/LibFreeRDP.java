@@ -141,6 +141,8 @@ public class LibFreeRDP
 
 	private static native boolean freerdp_send_clipboard_data(long inst, String data);
 
+	private static native boolean freerdp_send_client_display_update(long inst, int width, int height);
+
 	private static native String freerdp_get_last_error_string(long inst);
 
 	public static void setEventListener(EventListener l)
@@ -314,6 +316,7 @@ public class LibFreeRDP
 		args.add("/multitransport");
 		args.add("/glyph-cache");
 
+
 //		args.add(addFlag("auto-reconnect", true));
 		args.add(addFlag("fast-path", true));
 		args.add(addFlag("async-input", true));
@@ -322,6 +325,7 @@ public class LibFreeRDP
 		args.add(addFlag("async-channels", true));
 		args.add(addFlag("compression", false));
 
+		args.add(addFlag("dynamic-resolution", true));
 		args.add(addFlag("wallpaper", bookmark.getPerformanceFlags().getWallpaper()));
 		args.add(addFlag("window-drag", bookmark.getPerformanceFlags().getFullWindowDrag()));
 		args.add(addFlag("menu-anims", bookmark.getPerformanceFlags().getMenuAnimations()));
@@ -475,6 +479,11 @@ public class LibFreeRDP
 	public static boolean sendClipboardData(long inst, String data)
 	{
 		return freerdp_send_clipboard_data(inst, data);
+	}
+
+	public static boolean sendClientDisplayUpdate(long inst, int width, int height)
+	{
+		return freerdp_send_client_display_update(inst, width, height);
 	}
 
 	private static void OnConnectionSuccess(long inst)
