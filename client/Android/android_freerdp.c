@@ -1229,8 +1229,8 @@ BOOL freerdp_send_client_display_update(rdpContext* context, UINT32 width, UINT3
 	layout.PhysicalWidth = width / 75 * 25.4f;  // 转换为毫米
 	layout.PhysicalHeight = height / 75 * 25.4f; // 转换为毫米
 	layout.Orientation = ORIENTATION_LANDSCAPE;
-	layout.DesktopScaleFactor = scaleFactor;  // 使用传入的scaleFactor
-	layout.DeviceScaleFactor = scaleFactor;   // 使用传入的scaleFactor
+	layout.DesktopScaleFactor = 150;  // 使用传入的scaleFactor
+	layout.DeviceScaleFactor = 150;   // 使用传入的scaleFactor
 
 	// 3. 通过disp通道发送显示器布局
 	return afc->disp->SendMonitorLayout(afc->disp, 1, &layout) == CHANNEL_RC_OK;
