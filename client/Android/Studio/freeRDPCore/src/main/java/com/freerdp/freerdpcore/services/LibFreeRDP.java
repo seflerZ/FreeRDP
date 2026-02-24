@@ -250,7 +250,7 @@ public class LibFreeRDP
 		String hostname = bookmark.<ManualBookmark>get().getHostname();
 
 		args.add("/v:" + hostname);
-		args.add("/port:" + String.valueOf(port));
+		args.add("/port:" + port);
 
 		arg = bookmark.getUsername();
 		if (!arg.isEmpty())
@@ -270,7 +270,7 @@ public class LibFreeRDP
 
 		args.add(
 		    String.format("/size:%dx%d", screenSettings.getWidth(), screenSettings.getHeight()));
-		args.add("/bpp:" + String.valueOf(screenSettings.getColors()));
+		args.add("/bpp:" + screenSettings.getColors());
 
 		if (advanced.getConsoleMode())
 		{
@@ -299,7 +299,7 @@ public class LibFreeRDP
 
 		args.add("/cert:ignore");
 
-		// Enable multi-touch support
+		// Enable multitouch support
 		args.add("/multitouch");
 
 		if (mHasH264)
