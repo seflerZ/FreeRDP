@@ -141,7 +141,7 @@ public class LibFreeRDP
 
 	private static native boolean freerdp_send_clipboard_data(long inst, String data);
 
-	private static native boolean freerdp_send_client_display_update(long inst, int width, int height);
+	private static native boolean freerdp_send_client_display_update(long inst, int width, int height, int scaleFactor);
 
 	private static native String freerdp_get_last_error_string(long inst);
 
@@ -481,9 +481,9 @@ public class LibFreeRDP
 		return freerdp_send_clipboard_data(inst, data);
 	}
 
-	public static boolean sendClientDisplayUpdate(long inst, int width, int height)
+	public static boolean sendClientDisplayUpdate(long inst, int width, int height, int scaleFactor)
 	{
-		return freerdp_send_client_display_update(inst, width, height);
+		return freerdp_send_client_display_update(inst, width, height, scaleFactor);
 	}
 
 	private static void OnConnectionSuccess(long inst)

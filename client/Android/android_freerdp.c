@@ -1188,7 +1188,7 @@ static jstring JNICALL jni_freerdp_get_build_config(JNIEnv* env, jclass cls)
 }
 
 // 实现客户端显示更新功能，用于动态变更服务端分辨率
-BOOL freerdp_send_client_display_update(rdpContext* context, UINT32 width, UINT32 height)
+BOOL freerdp_send_client_display_update(rdpContext* context, UINT32 width, UINT32 height, UINT32 scaleFactor)
 {
 	androidContext* afc;
 	DISPLAY_CONTROL_MONITOR_LAYOUT layout = { 0 };
@@ -1229,15 +1229,15 @@ BOOL freerdp_send_client_display_update(rdpContext* context, UINT32 width, UINT3
 	layout.PhysicalWidth = width / 75 * 25.4f;  // 转换为毫米
 	layout.PhysicalHeight = height / 75 * 25.4f; // 转换为毫米
 	layout.Orientation = ORIENTATION_LANDSCAPE;
-	layout.DesktopScaleFactor = 100;
-	layout.DeviceScaleFactor = 100;
+	layout.DesktopScaleFactor = scaleFactor;  // 使用传入的scaleFactor
+	layout.DeviceScaleFactor = scaleFactor;   // 使用传入的scaleFactor
 
 	// 3. 通过disp通道发送显示器布局
 	return afc->disp->SendMonitorLayout(afc->disp, 1, &layout) == CHANNEL_RC_OK;
 }
 
 static jboolean JNICALL jni_freerdp_send_client_display_update(JNIEnv* env, jclass cls,
-		jlong instance, jint width, jint height)
+		jlong instance, jint width, jint height, jint scaleFactor)
 {
 	freerdp* inst = (freerdp*)instance;
 	if (!inst || !inst->context)
@@ -1245,8 +1245,8 @@ static jboolean JNICALL jni_freerdp_send_client_display_update(JNIEnv* env, jcla
 		return JNI_FALSE;
 	}
 
-	// 直接调用核心函数
-	return freerdp_send_client_display_update(inst->context, (UINT32)width, (UINT32)height) ? JNI_TRUE : JNI_FALSE;
+	// 调用核心函数，传入scaleFactor参数
+	return freerdp_send_client_display_update(inst->context, (UINT32)width, (UINT32)height, (UINT32)scaleFactor) ? JNI_TRUE : JNI_FALSE;
 }
 
 static JNINativeMethod methods[] = {
@@ -1269,7 +1269,7 @@ static JNINativeMethod methods[] = {
 	{ "freerdp_send_key_event", "(JIZ)Z", &jni_freerdp_send_key_event },
 	{ "freerdp_send_unicodekey_event", "(JIZ)Z", &jni_freerdp_send_unicodekey_event },
 	{ "freerdp_send_clipboard_data", "(JLjava/lang/String;)Z", &jni_freerdp_send_clipboard_data },
-	{ "freerdp_send_client_display_update", "(JII)Z", &jni_freerdp_send_client_display_update },
+	{ "freerdp_send_client_display_update", "(JIII)Z", &jni_freerdp_send_client_display_update },
 	{ "freerdp_has_h264", "()Z", &jni_freerdp_has_h264 }
 };
 
