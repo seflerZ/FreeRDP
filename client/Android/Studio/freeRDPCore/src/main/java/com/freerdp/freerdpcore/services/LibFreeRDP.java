@@ -322,7 +322,7 @@ public class LibFreeRDP
 		args.add(addFlag("async-input", true));
 		args.add(addFlag("async-update", true));
 		args.add(addFlag("bitmap-cache", true));
-		args.add(addFlag("async-channels", true));
+		args.add(addFlag("async-channels", false));
 		args.add(addFlag("compression", false));
 
 		args.add(addFlag("dynamic-resolution", true));
