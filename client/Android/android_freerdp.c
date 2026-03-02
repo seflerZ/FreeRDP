@@ -1216,11 +1216,11 @@ BOOL freerdp_send_client_display_update(rdpContext* context, UINT32 width, UINT3
 		return FALSE;
 	}
 
-	// 1. 更新本地设置
-	context->settings->DesktopWidth = width;
-	context->settings->DesktopHeight = height;
+	// 注意：不要在这里修改 settings->DesktopWidth/Height
+	// 让服务端响应后由 gdi_ResetGraphics 来更新，这样才能正确触发 DesktopResize 回调
+	// 如果提前修改，gdi_ResetGraphics 中的条件检查会失败，导致 OnGraphicsResize 不会被调用
 
-	// 2. 构造显示器布局结构
+	// 构造显示器布局结构
 	layout.Flags = DISPLAY_CONTROL_MONITOR_PRIMARY;
 	layout.Left = 0;
 	layout.Top = 0;
@@ -1228,11 +1228,11 @@ BOOL freerdp_send_client_display_update(rdpContext* context, UINT32 width, UINT3
 	layout.Height = height;
 	layout.PhysicalWidth = width / 75 * 25.4f;  // 转换为毫米
 	layout.PhysicalHeight = height / 75 * 25.4f; // 转换为毫米
-	layout.Orientation = ORIENTATION_LANDSCAPE;
-	layout.DesktopScaleFactor = scaleFactor;  // 使用传入的scaleFactor
-	layout.DeviceScaleFactor = 100;   // 固定值
+	layout.Orientation = width > height ? ORIENTATION_LANDSCAPE : ORIENTATION_PORTRAIT;
+	layout.DesktopScaleFactor = scaleFactor;
+	layout.DeviceScaleFactor = 100;
 
-	// 3. 通过disp通道发送显示器布局
+	// 通过disp通道发送显示器布局
 	return afc->disp->SendMonitorLayout(afc->disp, 1, &layout) == CHANNEL_RC_OK;
 }
 
