@@ -83,6 +83,10 @@ static ANDROID_EVENT* android_pop_event(ANDROID_EVENT_QUEUE* queue)
 static BOOL android_process_event(ANDROID_EVENT_QUEUE* queue, freerdp* inst)
 {
 	ANDROID_EVENT* event;
+
+	if (!inst || !inst->context)
+		return TRUE;  // Connection closed, ignore pending events
+
 	rdpContext* context = inst->context;
 	androidContext* afc = (androidContext*)context;
 
