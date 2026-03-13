@@ -1037,6 +1037,10 @@ static jboolean JNICALL jni_freerdp_send_key_event(JNIEnv* env, jclass cls, jlon
 	DWORD scancode;
 	ANDROID_EVENT* event;
 	freerdp* inst = (freerdp*)instance;
+
+	if (!inst || !inst->context)
+		return JNI_FALSE;
+
 	scancode = GetVirtualScanCodeFromVirtualKeyCode(keycode, 4);
 	int flags = (down == JNI_TRUE) ? KBD_FLAGS_DOWN : KBD_FLAGS_RELEASE;
 	flags |= (scancode & KBDEXT) ? KBD_FLAGS_EXTENDED : 0;
@@ -1060,6 +1064,10 @@ static jboolean JNICALL jni_freerdp_send_unicodekey_event(JNIEnv* env, jclass cl
 {
 	ANDROID_EVENT* event;
 	freerdp* inst = (freerdp*)instance;
+
+	if (!inst || !inst->context)
+		return JNI_FALSE;
+
 	UINT16 flags = (down == JNI_TRUE) ? 0 : KBD_FLAGS_RELEASE;
 	event = (ANDROID_EVENT*)android_event_unicodekey_new(flags, keycode);
 
@@ -1081,6 +1089,10 @@ static jboolean JNICALL jni_freerdp_send_cursor_event(JNIEnv* env, jclass cls, j
 {
 	ANDROID_EVENT* event;
 	freerdp* inst = (freerdp*)instance;
+
+	if (!inst || !inst->context)
+		return JNI_FALSE;
+
 	event = (ANDROID_EVENT*)android_event_cursor_new(flags, x, y);
 
 	if (!event)
@@ -1101,7 +1113,10 @@ static jboolean JNICALL jni_freerdp_send_touch_event(JNIEnv* env, jclass cls, jl
 {
     freerdp* inst = (freerdp*)instance;
     ANDROID_EVENT* event;
-    
+
+    if (!inst || !inst->context)
+        return JNI_FALSE;
+
     WLog_DBG(TAG, "send_touch_event: (%d, %d), flags=0x%x, contactId=%d", x, y, flags, contactId);
     
     // Create touch event and push to queue
@@ -1129,6 +1144,10 @@ static jboolean JNICALL jni_freerdp_send_clipboard_data(JNIEnv* env, jclass cls,
 {
 	ANDROID_EVENT* event;
 	freerdp* inst = (freerdp*)instance;
+
+	if (!inst || !inst->context)
+		return JNI_FALSE;
+
 	const jbyte* data = jdata != NULL ? (*env)->GetStringUTFChars(env, jdata, NULL) : NULL;
 	const size_t data_length = data ? (*env)->GetStringUTFLength(env, jdata) : 0;
 	jboolean ret = JNI_FALSE;
