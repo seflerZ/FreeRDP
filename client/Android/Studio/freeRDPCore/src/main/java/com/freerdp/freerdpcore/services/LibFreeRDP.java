@@ -304,15 +304,15 @@ public class LibFreeRDP
 
 		if (mHasH264)
 		{
-			args.add("/gfx:avc444");
+			args.add("/gfx:avc420");
 			args.add("/gfx-progressive");
 			args.add("/frame-ack:no");
 		} else {
-			args.add("/gfx");
+			args.add("/rfx");
 		}
 
 //		args.add("/heartbeat");
-//		args.add("/network:wan");
+//		args.add("/network:auto");
 		args.add("/multitransport");
 		args.add("/glyph-cache");
 
