@@ -351,7 +351,7 @@ rdpSettings* freerdp_settings_new(DWORD flags)
 	settings->DisableFullWindowDrag = TRUE;
 	settings->DisableMenuAnims = TRUE;
 	settings->DisableThemes = FALSE;
-	settings->ConnectionType = CONNECTION_TYPE_LAN;
+	settings->ConnectionType = CONNECTION_TYPE_AUTO;
 	settings->NetworkAutoDetect = TRUE;
 	settings->EncryptionMethods = ENCRYPTION_METHOD_NONE;
 	settings->EncryptionLevel = ENCRYPTION_LEVEL_NONE;
