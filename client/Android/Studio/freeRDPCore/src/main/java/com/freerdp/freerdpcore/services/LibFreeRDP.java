@@ -312,7 +312,7 @@ public class LibFreeRDP
 		}
 
 //		args.add("/heartbeat");
-//		args.add("/network:auto");
+		args.add("/network:lan");
 		args.add("/multitransport");
 		args.add("/glyph-cache");
 
