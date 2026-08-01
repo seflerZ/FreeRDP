@@ -49,6 +49,7 @@ set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} winpr freerdp freerdp-client)
 
 set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} dl)
 set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} jnigraphics)
+set(${MODULE_PREFIX}_LIBS ${${MODULE_PREFIX}_LIBS} log)
 
 #set_target_properties(${MODULE_NAME} PROPERTIES OUTPUT_NAME ${MODULE_NAME}${FREERDP_API_VERSION})
 
