@@ -20,6 +20,7 @@
 #include <freerdp/log.h>
 
 #include <time.h>
+#include <android/log.h>
 
 #define TAG CLIENT_TAG("android")
 
