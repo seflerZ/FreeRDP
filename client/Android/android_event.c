@@ -19,9 +19,6 @@
 #include <freerdp/freerdp.h>
 #include <freerdp/log.h>
 
-#include <time.h>
-#include <android/log.h>
-
 #define TAG CLIENT_TAG("android")
 
 #ifdef HAVE_UNISTD_H
@@ -112,16 +109,6 @@ static BOOL android_process_event(ANDROID_EVENT_QUEUE* queue, freerdp* inst)
 		else if (event->type == EVENT_TYPE_CURSOR)
 		{
 			ANDROID_EVENT_CURSOR* cursor_event = (ANDROID_EVENT_CURSOR*)event;
-			/* [LatencyScroll] 点 D:input thread 即将调 MouseEvent (libfreerdp 入口) */
-			struct timespec _tsD;
-			clock_gettime(CLOCK_MONOTONIC, &_tsD);
-			long _msD = _tsD.tv_sec * 1000L + _tsD.tv_nsec / 1000000L;
-			/* 用 __android_log_print 强出,绕开 WLog 等级过滤(原 WLog_ERR 在
-			 * Android client 默认等级下可能被过滤,所以 D 点一直没出) */
-			__android_log_print(ANDROID_LOG_ERROR, "LatencyScroll",
-			                    "D tsD=%ld x=%d y=%d flags=0x%x",
-			                    _msD, cursor_event->x, cursor_event->y,
-			                    (unsigned)cursor_event->flags);
 			inst->input->MouseEvent(inst->input, cursor_event->flags, cursor_event->x,
 			                        cursor_event->y);
 			android_event_free((ANDROID_EVENT*)cursor_event);

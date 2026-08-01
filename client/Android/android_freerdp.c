@@ -19,7 +19,6 @@
 
 #include <assert.h>
 #include <locale.h>
-#include <time.h>
 
 #include <jni.h>
 #include <stdio.h>
@@ -1094,13 +1093,6 @@ static jboolean JNICALL jni_freerdp_send_cursor_event(JNIEnv* env, jclass cls, j
 
 	if (!inst || !inst->context)
 		return JNI_FALSE;
-
-	/* [LatencyScroll] 点 C:JNI 入口,clock_gettime 与 Java SystemClock.uptimeMillis 同源 */
-	struct timespec _tsC;
-	clock_gettime(CLOCK_MONOTONIC, &_tsC);
-	long _msC = _tsC.tv_sec * 1000L + _tsC.tv_nsec / 1000000L;
-	__android_log_print(ANDROID_LOG_ERROR, "LatencyScroll",
-	                    "C tsC=%ld x=%d y=%d flags=0x%x", _msC, x, y, (unsigned)flags);
 
 	event = (ANDROID_EVENT*)android_event_cursor_new(flags, x, y);
 
