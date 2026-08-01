@@ -45,6 +45,7 @@
 #include <freerdp/utils/signal.h>
 
 #include <android/bitmap.h>
+#include <android/log.h>
 
 #include "android_jni_callback.h"
 #include "android_jni_utils.h"
@@ -1293,8 +1294,37 @@ static JNINativeMethod methods[] = {
 };
 
 static void signal_handler(int signal, siginfo_t *info, void *reserved) {
+    /*
+     * 之前这里是 kill(getpid(), SIGKILL),等于自杀——任何 native 路径上的
+     * 崩溃(SIGSEGV / SIGABRT / SIGBUS / SIGILL / SIGFPE / SIGSTKFLT)都被
+     * 这一行吞掉,logcat 里只剩 "signal 9",根本看不到 backtrace。
+     *
+     * 改成:先解除自己的 handler,再 abort()。Android 的 debuggerd/tombstone
+     * 会捕获 SIGABRT,生成完整的 native backtrace 写到 /data/tombstones/ 和
+     * logcat -b crash,而不是被我们提前自杀。
+     */
+    int code = info ? info->si_code : 0;
+    void* addr = info ? info->si_addr : NULL;
+    pid_t tid = (pid_t)-1;
+    int pid = -1;
+#if defined(__ANDROID__) && (__ANDROID_API__ >= 21)
+    tid = gettid();
+    pid = (int)getpid();
+#endif
+
     WLog_FATAL(TAG, "Signal handler called with signal: %d,", signal);
-    kill(getpid(), SIGKILL);
+    __android_log_print(ANDROID_LOG_FATAL, "FreeRDP-NativeCrash",
+                        ">>> NATIVE CRASH: signal=%d si_code=%d addr=%p tid=%d pid=%d",
+                        signal, code, addr, (int)tid, pid);
+
+    /* Restore default handler for this signal, then abort() so the kernel
+     * delivers a fresh SIGABRT (debuggerd picks it up). */
+    struct sigaction dfl;
+    memset(&dfl, 0, sizeof(dfl));
+    dfl.sa_handler = SIG_DFL;
+    sigaction(signal, &dfl, NULL);
+
+    abort();
 }
 
 static jclass gJavaActivityClass = NULL;
