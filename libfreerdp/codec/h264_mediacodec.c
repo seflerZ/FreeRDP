@@ -546,12 +546,25 @@ static int ensure_decoder(H264_CONTEXT* h264)
 	   不认识的键会被 MediaCodec 忽略,故直接用字面量。 */
 	sys->fnAMediaFormat_setInt32(sys->inputFormat, "latency", 1);
 	sys->fnAMediaFormat_setInt32(sys->inputFormat, "low-latency", 1);
-	/* 请求 planar 420(实际格式以输出格式为准) */
+	/* 请求 NV12(semiplanar) —— 高通解码器原生就是 NV12,而要 planar 会让 HAL 每帧
+	   做一次全帧格式转换(实测 media.hwcodec 每帧烧 ~13ms CPU)。copy_yuv420_to_context
+	   对 planar / semiplanar / NV21 都有分支,给哪种都能解。旧值是 Planar(19)。 */
 	if (sys->gAMediaFormatKeyColorFormat)
 		sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat,
-		                             MC_COLOR_FormatYUV420Planar);
+		                             MC_COLOR_FormatYUV420SemiPlanar);
 
 	status = sys->fnAMediaCodec_configure(sys->decoder, sys->inputFormat, NULL, NULL, 0);
+
+	/* 个别解码器不认 NV12:退回旧的 planar 请求再试一次,保证不比改之前差 */
+	if ((status != AMEDIA_OK) && sys->gAMediaFormatKeyColorFormat)
+	{
+		WLog_Print(h264->log, WLOG_WARN, "configure with NV12 failed: %d, retrying planar",
+		           status);
+		sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat,
+		                             MC_COLOR_FormatYUV420Planar);
+		status = sys->fnAMediaCodec_configure(sys->decoder, sys->inputFormat, NULL, NULL, 0);
+	}
+
 	if (status != AMEDIA_OK)
 	{
 		WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_configure failed: %d", status);
