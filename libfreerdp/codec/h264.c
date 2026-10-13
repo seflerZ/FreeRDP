@@ -33,6 +33,137 @@
 #include <freerdp/log.h>
 
 #include "h264.h"
+#define TAG FREERDP_TAG("codec")
+
+static BOOL avc444_ensure_buffer(H264_CONTEXT* h264, DWORD nDstHeight);
+
+BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width, UINT32 height)
+{
+	if (!h264)
+		return FALSE;
+
+	if (stride == 0)
+		stride = width;
+
+	if (stride % 16 != 0)
+		stride += 16 - stride % 16;
+
+	if (height % 16 != 0)
+		height += 16 - height % 16;
+
+	if (!h264->pYUVData[0] || !h264->pYUVData[1] || !h264->pYUVData[2] || (width != h264->width) ||
+	    (height != h264->height) || (stride != h264->iStride[0]))
+	{
+		h264->iStride[0] = stride;
+		h264->iStride[1] = (stride + 1) / 2;
+		h264->iStride[2] = (stride + 1) / 2;
+		h264->width = width;
+		h264->height = height;
+		_aligned_free(h264->pYUVData[0]);
+		_aligned_free(h264->pYUVData[1]);
+		_aligned_free(h264->pYUVData[2]);
+		h264->pYUVData[0] = _aligned_malloc(1ull * h264->iStride[0] * height, 16);
+		h264->pYUVData[1] = _aligned_malloc(1ull * h264->iStride[1] * height, 16);
+		h264->pYUVData[2] = _aligned_malloc(1ull * h264->iStride[2] * height, 16);
+
+		if (!h264->pYUVData[0] || !h264->pYUVData[1] || !h264->pYUVData[2])
+			return FALSE;
+	}
+
+	return TRUE;
+}
+
+static BOOL check_rect(const H264_CONTEXT* h264, const RECTANGLE_16* rect, UINT32 nDstWidth,
+                       UINT32 nDstHeight)
+{
+	/* Check, if the output rectangle is valid in decoded h264 frame. */
+	if ((rect->right > h264->width) || (rect->left > h264->width))
+		return FALSE;
+
+	if ((rect->top > h264->height) || (rect->bottom > h264->height))
+		return FALSE;
+
+	/* Check, if the output rectangle is valid in destination buffer. */
+	if ((rect->right > nDstWidth) || (rect->left > nDstWidth))
+		return FALSE;
+
+	if ((rect->bottom > nDstHeight) || (rect->top > nDstHeight))
+		return FALSE;
+
+	return TRUE;
+}
+
+static BOOL avc_yuv_to_rgb(H264_CONTEXT* h264, const RECTANGLE_16* regionRects,
+                           UINT32 numRegionRects, UINT32 nDstWidth, UINT32 nDstHeight,
+                           UINT32 nDstStep, BYTE* pDstData, DWORD DstFormat, BOOL use444)
+{
+	UINT32 x;
+	BYTE* pDstPoint;
+	prim_size_t roi;
+	INT32 width, height;
+	const BYTE* pYUVPoint[3];
+	primitives_t* prims = primitives_get();
+
+	for (x = 0; x < numRegionRects; x++)
+	{
+		const RECTANGLE_16* rect = &(regionRects[x]);
+		const UINT32* iStride;
+		BYTE** ppYUVData;
+
+		if (use444)
+		{
+			iStride = h264->iYUV444Stride;
+			ppYUVData = h264->pYUV444Data;
+		}
+		else
+		{
+			iStride = h264->iStride;
+			ppYUVData = h264->pYUVData;
+		}
+
+		if (!check_rect(h264, rect, nDstWidth, nDstHeight))
+			return FALSE;
+
+		width = rect->right - rect->left;
+		height = rect->bottom - rect->top;
+		pDstPoint = pDstData + rect->top * nDstStep + rect->left * 4;
+		pYUVPoint[0] = ppYUVData[0] + rect->top * iStride[0] + rect->left;
+		pYUVPoint[1] = ppYUVData[1];
+		pYUVPoint[2] = ppYUVData[2];
+
+		if (use444)
+		{
+			pYUVPoint[1] += rect->top * iStride[1] + rect->left;
+			pYUVPoint[2] += rect->top * iStride[2] + rect->left;
+		}
+		else
+		{
+			pYUVPoint[1] += rect->top / 2 * iStride[1] + rect->left / 2;
+			pYUVPoint[2] += rect->top / 2 * iStride[2] + rect->left / 2;
+		}
+
+		roi.width = width;
+		roi.height = height;
+
+		if (use444)
+		{
+			if (prims->YUV444ToRGB_8u_P3AC4R(pYUVPoint, iStride, pDstPoint, nDstStep, DstFormat,
+			                                 &roi) != PRIMITIVES_SUCCESS)
+			{
+				return FALSE;
+			}
+		}
+		else
+		{
+			if (prims->YUV420ToRGB_8u_P3AC4R(pYUVPoint, iStride, pDstPoint, nDstStep, DstFormat,
+			                                 &roi) != PRIMITIVES_SUCCESS)
+				return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
 INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize, BYTE* pDstData,
                         DWORD DstFormat, UINT32 nDstStep, UINT32 nDstWidth, UINT32 nDstHeight,
                         RECTANGLE_16* regionRects, UINT32 numRegionRects)
