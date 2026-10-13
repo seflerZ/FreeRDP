@@ -1090,7 +1090,11 @@ static UINT gdi_CreateSurface(RdpgfxClientContext* context,
 	switch (createSurface->pixelFormat)
 	{
 		case GFX_PIXEL_FORMAT_ARGB_8888:
-			surface->format = PIXEL_FORMAT_BGRA32;
+			/* 与 gdi->dstFormat(RGBA32) 对齐:avc_yuv_to_rgb 的输出格式跟随
+			   surface->format,故 YUV->RGB 直接产出 RGBA,gdi_OutputUpdate 里
+			   就不必再做每帧 200 万像素的 R/B 交换(实测 23.8ms/帧)。
+			   原值 PIXEL_FORMAT_BGRA32。回退只需改回这一行。 */
+			surface->format = PIXEL_FORMAT_RGBA32;
 			break;
 
 		case GFX_PIXEL_FORMAT_XRGB_8888:
