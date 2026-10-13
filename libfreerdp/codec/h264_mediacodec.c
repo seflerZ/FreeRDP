@@ -52,6 +52,11 @@
  * 6. 删除 cargo-cult 参数 —— 旧实现塞了一堆厂商私 key 和 max-b-frames/
  *    keyint(那是编码器参数,对解码无意义)。只保留 mime/width/height/
  *    framerate/bitrate/color。
+ *
+ * 7. 低延迟解码(KEY_LOW_LATENCY)—— 硬件解码器默认会为吞吐在内部攒几帧
+ *    再吐,而远程桌面要的是"尽快看到":解码器内部攒的帧是纯粹的显示延迟。
+ *    API 30+ 起支持 "low-latency" 键,置 1 即立即输出。该键由
+ *    libmediandk.so 运行时解析,老版本解析不到就跳过,不影响兼容。
  */
 
 #include <winpr/wlog.h>
@@ -191,6 +196,7 @@ struct _H264_CONTEXT_MEDIACODEC
 	const char* gAMediaFormatKeyHeight;
 	const char* gAMediaFormatKeyFrameRate;
 	const char* gAMediaFormatKeyBitRate;
+	const char* gAMediaFormatKeyLowLatency;
 	const char* gAMediaFormatKeyColorFormat;
 	const char* gAMediaFormatKeyStride;
 	const char* gAMediaFormatKeySliceHeight;
@@ -259,6 +265,8 @@ static int load_libmediandk(H264_CONTEXT* h264)
 	/* 可选 KEY:缺失走默认值,不致命 */
 	RESOLVE_MEDIANDK_VARIABLE_OPTIONAL(sys, gAMediaFormatKeyFrameRate, "AMEDIAFORMAT_KEY_FRAME_RATE");
 	RESOLVE_MEDIANDK_VARIABLE_OPTIONAL(sys, gAMediaFormatKeyBitRate, "AMEDIAFORMAT_KEY_BIT_RATE");
+	RESOLVE_MEDIANDK_VARIABLE_OPTIONAL(sys, gAMediaFormatKeyLowLatency,
+	                                   "AMEDIAFORMAT_KEY_LOW_LATENCY");
 	RESOLVE_MEDIANDK_VARIABLE_OPTIONAL(sys, gAMediaFormatKeyColorFormat,
 	                                   "AMEDIAFORMAT_KEY_COLOR_FORMAT");
 	RESOLVE_MEDIANDK_VARIABLE_OPTIONAL(sys, gAMediaFormatKeyStride, "AMEDIAFORMAT_KEY_STRIDE");
@@ -541,6 +549,9 @@ static int ensure_decoder(H264_CONTEXT* h264)
 	if (sys->gAMediaFormatKeyBitRate && h264->BitRate > 0)
 		sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyBitRate,
 		                             (int32_t)h264->BitRate);
+	/* 低延迟:让硬解立即吐帧、不在内部攒帧。API 30+ 的键,解析不到就跳过。 */
+	if (sys->gAMediaFormatKeyLowLatency)
+		sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyLowLatency, 1);
 	/* 请求 planar 420(实际格式以输出格式为准) */
 	if (sys->gAMediaFormatKeyColorFormat)
 		sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat,
