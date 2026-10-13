@@ -94,6 +94,27 @@ static double mc_now_us(void)
 	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
 }
 
+/* 日志出口:本 .so 未链接 liblog,直接引用 __android_log_print 会在链接期报
+   undefined symbol(实测 ld.lld 失败)。故照本文件加载 libmediandk 的手法,
+   运行时取符号;取不到就静默 —— 打点只用于诊断,不该影响功能。 */
+typedef int (*mc_alog_fn)(int prio, const char* tag, const char* fmt, ...);
+static mc_alog_fn g_mc_alog = NULL;
+
+static void mc_log_open(void)
+{
+	HMODULE h;
+
+	if (g_mc_alog != NULL)
+	{
+		return;
+	}
+	h = LoadLibraryA("liblog.so");
+	if (h != NULL)
+	{
+		g_mc_alog = (mc_alog_fn) GetProcAddress(h, "__android_log_print");
+	}
+}
+
 #define RESOLVE_MEDIANDK_FUNC(sys, name)                                          \
 	({                                                                            \
 		BOOL rc = TRUE;                                                           \
@@ -741,12 +762,16 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 						mct_max = t4 - t0;
 					if ((mct_n % 50) == 0)
 					{
-						/* 走 __android_log_print:WLog 在 Android 默认写 stderr，
-						   而现代 Android 不把 native stderr 送 logcat；WARN 级别也保证不被过滤 */
-						__android_log_print(ANDROID_LOG_WARN, "XRDP-MCTIME",
-						                    "n=%d feed=%.1fms decode=%.1fms copy=%.1fms total=%.1fms peak=%.1fms",
-						                    mct_n, mct_in / mct_n, mct_dec / mct_n,
-						                    mct_cp / mct_n, mct_tot / mct_n, mct_max);
+						/* 走 logcat:WLog 在 Android 默认写 stderr,而现代 Android
+						   不把 native stderr 送 logcat;WARN 级别也保证不被过滤 */
+						mc_log_open();
+						if (g_mc_alog != NULL)
+						{
+							g_mc_alog(ANDROID_LOG_WARN, "XRDP-MCTIME",
+							          "n=%d feed=%.1fms decode=%.1fms copy=%.1fms total=%.1fms peak=%.1fms",
+							          mct_n, mct_in / mct_n, mct_dec / mct_n,
+							          mct_cp / mct_n, mct_tot / mct_n, mct_max);
+						}
 					}
 				}
 				return 1;
