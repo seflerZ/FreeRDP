@@ -173,17 +173,21 @@ static void sc_log_line(const char* fmt, ...)
 }
 
 static void sc_report(int fast, int fmteq, double sx, double sy, int nrects,
-                      double scale_ms, double enter_ms)
+                      double scale_ms, double enter_ms, unsigned int sf, unsigned int df)
 {
 	static int n = 0;
 	static double s_scale = 0.0, s_tot = 0.0;
+	static unsigned int last_sf = 0, last_df = 0;
 
 	n++;
 	s_scale += scale_ms;
 	s_tot += (sc_now_ms() - enter_ms);
+	last_sf = sf;
+	last_df = df;
 	if ((n == 1) || ((n % 50) == 0))
-		sc_log_line("SCALE n=%d fast=%d fmtEq=%d sx=%.3f sy=%.3f nrect=%d scalems=%.2f totalms=%.2f",
-		            n, fast, fmteq, sx, sy, nrects, s_scale / n, s_tot / n);
+		sc_log_line("SCALE n=%d fast=%d fmtEq=%d sx=%.3f sy=%.3f nrect=%d "
+		            "scalems=%.2f totalms=%.2f sf=0x%08x df=0x%08x",
+		            n, fast, fmteq, sx, sy, nrects, s_scale / n, s_tot / n, last_sf, last_df);
 }
 
 static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
@@ -231,7 +235,7 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 		const UINT32 dheight = MIN((UINT32)(sheight * sy), (UINT32)gdi->height - nYDst);
 
 		sc_t0 = sc_now_ms();
-		if (sc_fast && (surface->format == gdi->dstFormat))
+		if (sc_fast)
 		{
 			if (!freerdp_image_copy(gdi->primary_buffer, gdi->dstFormat, gdi->stride, nXDst, nYDst,
 			                        dwidth, dheight, surface->data, surface->format,
@@ -261,7 +265,8 @@ fail:
 		rc = ERROR_INTERNAL_ERROR;
 
 	region16_clear(&(surface->invalidRegion));
-	sc_report(sc_fast, (surface->format == gdi->dstFormat), sx, sy, (int)nbRects, sc_scale, sc_enter);
+	sc_report(sc_fast, (surface->format == gdi->dstFormat), sx, sy, (int)nbRects, sc_scale, sc_enter,
+	          (unsigned int)surface->format, (unsigned int)gdi->dstFormat);
 	return rc;
 }
 
