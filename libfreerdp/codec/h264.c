@@ -34,6 +34,52 @@
 
 #include "h264.h"
 
+/* ---- 打点用:同一出口(app 私有文件),与 h264_mediacodec.c 的 MCTIME 共用一个文件 ----
+   单位统一为微秒(标签写 us),避免上次把微秒标成 ms 的错误。 */
+#include <stdio.h>
+#include <stdarg.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static double h264_now_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
+}
+
+static void h264_log_prepare(void)
+{
+	(void) mkdir("/data/data/com.qihua.rmt/files", 0770);
+	(void) mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
+}
+
+static void h264_log_line(const char* fmt, ...)
+{
+	static const char* files[2] = {
+	    "/data/data/com.qihua.rmt/files/mctime.log",
+	    "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
+	int i;
+
+	for (i = 0; i < 2; i++)
+	{
+		FILE* f = fopen(files[i], "a");
+
+		if (f != NULL)
+		{
+			va_list ap;
+
+			va_start(ap, fmt);
+			vfprintf(f, fmt, ap);
+			va_end(ap);
+			fputc('\n', f);
+			fclose(f);
+			return;
+		}
+	}
+}
+
 #define TAG FREERDP_TAG("codec")
 
 static BOOL avc444_ensure_buffer(H264_CONTEXT* h264, DWORD nDstHeight);
@@ -170,11 +216,14 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
                         RECTANGLE_16* regionRects, UINT32 numRegionRects)
 {
 	int status;
+	double yt0, yt1, yt2;
 
 	if (!h264)
 		return -1001;
 
+	yt0 = h264_now_us();
 	status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
+	yt1 = h264_now_us();
 
 	if (status == 0)
 		return 1;
@@ -185,6 +234,25 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	if (!avc_yuv_to_rgb(h264, regionRects, numRegionRects, nDstWidth, nDstHeight, nDstStep,
 	                    pDstData, DstFormat, FALSE))
 		return -1002;
+
+	yt2 = h264_now_us();
+	{
+		static int yt_n = 0;
+		static double yt_dec = 0, yt_yuv = 0, yt_tot = 0, yt_ymax = 0;
+
+		yt_n++;
+		yt_dec += yt1 - yt0;
+		yt_yuv += yt2 - yt1;
+		yt_tot += yt2 - yt0;
+		if ((yt2 - yt1) > yt_ymax)
+			yt_ymax = yt2 - yt1;
+		if ((yt_n == 1) || ((yt_n % 50) == 0))
+		{
+			h264_log_prepare();
+			h264_log_line("YUVTIME n=%d decomp=%.1fus yuv=%.1fus total=%.1fus yuvmax=%.1fus",
+			              yt_n, yt_dec / yt_n, yt_yuv / yt_n, yt_tot / yt_n, yt_ymax);
+		}
+	}
 
 	return 1;
 }
