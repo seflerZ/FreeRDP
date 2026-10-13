@@ -66,11 +66,6 @@
 #include <media/NdkMediaFormat.h>
 
 #include <string.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <sys/stat.h>
-#include <time.h>
-#include <android/log.h>
 
 #include "h264.h"
 
@@ -87,53 +82,6 @@ enum
 #define MC_DEQUEUE_TIMEOUT_US 100000
 /* 放弃前的重试次数:总预算 ~1s,避免旧实现的无限 spin */
 #define MC_DEQUEUE_MAX_RETRIES 10
-
-/* 相位打点用的单调钟(微秒) */
-static double mc_now_us(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
-}
-
-/* 诊断日志出口:【写文件】而不是 logcat。
-   实测荣耀 Magic V2(VER-AN10)即使打开日志开关,logcat 里也没有该 app 的 native 输出
-   (整机 2119 行全是系统日志);且直接引用 __android_log_print 会在链接期 undefined。
-   写 app 自己的私有目录可同时绕开这两件事,且无需任何权限。
-   读法: adb shell run-as com.qihua.rmt cat files/mctime.log
-   注: 包名 com.qihua.rmt 是 aRDP flavor,换 flavor 需同步改这里。 */
-static void mc_log_line(const char* fmt, ...)
-{
-	static const char* files[2] = {
-	    "/data/data/com.qihua.rmt/files/mctime.log",
-	    "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
-	int i;
-
-	for (i = 0; i < 2; i++)
-	{
-		FILE* f = fopen(files[i], "a");
-
-		if (f != NULL)
-		{
-			va_list ap;
-
-			va_start(ap, fmt);
-			vfprintf(f, fmt, ap);
-			va_end(ap);
-			fputc('\n', f);
-			fclose(f);
-			return;
-		}
-	}
-}
-
-/* 首次写入前把目录建出来(私有目录下的 files/ 未必存在) */
-static void mc_log_prepare(void)
-{
-	(void) mkdir("/data/data/com.qihua.rmt/files", 0770);
-	(void) mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
-}
 
 #define RESOLVE_MEDIANDK_FUNC(sys, name)                                          \
 	({                                                                            \
@@ -612,8 +560,6 @@ static int ensure_decoder(H264_CONTEXT* h264)
 	}
 
 	status = sys->fnAMediaCodec_start(sys->decoder);
-	mc_log_prepare();
-	mc_log_line("MCTIME codec start status=%d %ux%u", (int)status, h264->width, h264->height);
 	if (status != AMEDIA_OK)
 	{
 		WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_start failed: %d", status);
@@ -664,9 +610,6 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 	sys = (H264_CONTEXT_MEDIACODEC*)h264->pSystemData;
 	WINPR_ASSERT(sys);
 
-	double t0, t2, t3, t4;
-
-	t0 = mc_now_us();
 	/* 懒创建/按需重建解码器 */
 	rc = ensure_decoder(h264);
 	if (rc < 0)
@@ -720,8 +663,6 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 		}
 	}
 
-	t2 = mc_now_us();
-
 	/* ---- 取出一帧输出(处理 format-changed,有界重试,不 spin) ---- */
 	{
 		int retries = 0;
@@ -757,11 +698,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				}
 
 				const uint8_t* src = outputBuffer + bufferInfo.offset;
-				BOOL ok;
-
-				t3 = mc_now_us();
-				ok = copy_yuv420_to_context(h264, src, bufferInfo.size);
-				t4 = mc_now_us();
+				BOOL ok = copy_yuv420_to_context(h264, src, bufferInfo.size);
 				/* 拷贝完立即归还 output buffer(copy 模式下不跨调用持有) */
 				sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
 
@@ -769,26 +706,6 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				{
 					WLog_Print(h264->log, WLOG_ERROR, "copy_yuv420_to_context failed");
 					return -1;
-				}
-				{
-					static int mct_n = 0;
-					static double mct_in = 0, mct_dec = 0, mct_cp = 0, mct_tot = 0;
-					static double mct_max = 0;
-
-					mct_n++;
-					mct_in += t2 - t0;
-					mct_dec += t3 - t2;
-					mct_cp += t4 - t3;
-					mct_tot += t4 - t0;
-					if ((t4 - t0) > mct_max)
-						mct_max = t4 - t0;
-					if ((mct_n == 1) || ((mct_n % 50) == 0))
-					{
-						mc_log_prepare();
-						mc_log_line("MCTIME n=%d feed=%.1fms decode=%.1fms copy=%.1fms total=%.1fms peak=%.1fms",
-						            mct_n, mct_in / mct_n, mct_dec / mct_n,
-						            mct_cp / mct_n, mct_tot / mct_n, mct_max);
-					}
 				}
 				return 1;
 			}
