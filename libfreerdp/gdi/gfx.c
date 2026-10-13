@@ -130,66 +130,6 @@ fail:
 	return rc;
 }
 
-/* ---- SCALE 打点 + 1:1 快路径 ----
-   背景:实测客户端每帧 48ms,其中 gdi_EndFrame 占 25.6ms,而 OnGraphicsUpdate(Java)
-   只占 1ms => 约 24.6ms 落在这里的 freerdp_image_scale(整屏走通用重采样器)。
-   1:1(sx==sy==1.0)且格式相同时,缩放在语义上就是一次拷贝 => 改走 freerdp_image_copy,
-   避开逐像素重采样。打点落 mctime.log 以确认是否命中快路径。 */
-#include <stdio.h>
-#include <stdarg.h>
-#include <time.h>
-
-static double sc_now_ms(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (double) ts.tv_sec * 1000.0 + (double) ts.tv_nsec / 1e6;
-}
-
-static void sc_log_line(const char* fmt, ...)
-{
-	static const char* files[2] = {
-	    "/data/data/com.qihua.rmt/files/mctime.log",
-	    "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
-	int i;
-
-	for (i = 0; i < 2; i++)
-	{
-		FILE* f = fopen(files[i], "a");
-
-		if (f != NULL)
-		{
-			va_list ap;
-
-			va_start(ap, fmt);
-			vfprintf(f, fmt, ap);
-			va_end(ap);
-			fputc('\n', f);
-			fclose(f);
-			return;
-		}
-	}
-}
-
-static void sc_report(int fast, int fmteq, double sx, double sy, int nrects,
-                      double scale_ms, double enter_ms, unsigned int sf, unsigned int df)
-{
-	static int n = 0;
-	static double s_scale = 0.0, s_tot = 0.0;
-	static unsigned int last_sf = 0, last_df = 0;
-
-	n++;
-	s_scale += scale_ms;
-	s_tot += (sc_now_ms() - enter_ms);
-	last_sf = sf;
-	last_df = df;
-	if ((n == 1) || ((n % 50) == 0))
-		sc_log_line("SCALE n=%d fast=%d fmtEq=%d sx=%.3f sy=%.3f nrect=%d "
-		            "scalems=%.2f totalms=%.2f sf=0x%08x df=0x%08x",
-		            n, fast, fmteq, sx, sy, nrects, s_scale / n, s_tot / n, last_sf, last_df);
-}
-
 static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 {
 	UINT rc = ERROR_INTERNAL_ERROR;
@@ -199,7 +139,6 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 	UINT32 i, nbRects;
 	double sx, sy;
 	rdpUpdate* update = gdi->context->update;
-	double sc_enter = 0.0, sc_t0 = 0.0, sc_scale = 0.0;
 	int sc_fast = 0;
 
 	if (gdi->suppressOutput)
@@ -215,7 +154,6 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 	sx = surface->outputTargetWidth / (double)surface->mappedWidth;
 	sy = surface->outputTargetHeight / (double)surface->mappedHeight;
 	sc_fast = (sx == 1.0) && (sy == 1.0);
-	sc_enter = sc_now_ms();
 
 	if (!(rects = region16_rects(&surface->invalidRegion, &nbRects)) || !nbRects)
 		return CHANNEL_RC_OK;
@@ -234,7 +172,6 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 		const UINT32 dwidth = MIN((UINT32)(swidth * sx), (UINT32)gdi->width - nXDst);
 		const UINT32 dheight = MIN((UINT32)(sheight * sy), (UINT32)gdi->height - nYDst);
 
-		sc_t0 = sc_now_ms();
 		if (sc_fast)
 		{
 			if (!freerdp_image_copy(gdi->primary_buffer, gdi->dstFormat, gdi->stride, nXDst, nYDst,
@@ -252,7 +189,6 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 			rc = CHANNEL_RC_NULL_DATA;
 			goto fail;
 		}
-		sc_scale += (sc_now_ms() - sc_t0);
 
 		gdi_InvalidateRegion(gdi->primary->hdc, (INT32)nXDst, (INT32)nYDst, (INT32)dwidth,
 		                     (INT32)dheight);
@@ -265,8 +201,6 @@ fail:
 		rc = ERROR_INTERNAL_ERROR;
 
 	region16_clear(&(surface->invalidRegion));
-	sc_report(sc_fast, (surface->format == gdi->dstFormat), sx, sy, (int)nbRects, sc_scale, sc_enter,
-	          (unsigned int)surface->format, (unsigned int)gdi->dstFormat);
 	return rc;
 }
 

@@ -851,63 +851,6 @@ static UINT rdpgfx_recv_start_frame_pdu(RDPGFX_CHANNEL_CALLBACK* callback, wStre
  *
  * @return 0 on success, otherwise a Win32 error code
  */
-/* ---- ACKTIME 打点:量「解码完成 -> 帧确认写出」这一段 ----
-   背景:MCTIME/YUVTIME 实测客户端每帧处理只 22.5ms,而服务端量到的
-   每帧 send->ack 是 425ms => 差额约 400ms 落在这条缝里,且此前无任何打点。
-   落同一个 app 私有文件(mctime.log),epoch 毫秒便于与其他打点对齐。
-   读法: adb shell run-as com.qihua.rmt cat files/mctime.log | grep ACKTIME */
-#include <stdio.h>
-#include <stdarg.h>
-#include <time.h>
-
-static double at_epoch_ms(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_REALTIME, &ts);
-	return (double) ts.tv_sec * 1000.0 + (double) ts.tv_nsec / 1e6;
-}
-
-static void at_log_line(const char* fmt, ...)
-{
-	static const char* files[2] = {
-	    "/data/data/com.qihua.rmt/files/mctime.log",
-	    "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
-	int i;
-
-	for (i = 0; i < 2; i++)
-	{
-		FILE* f = fopen(files[i], "a");
-
-		if (f != NULL)
-		{
-			va_list ap;
-
-			va_start(ap, fmt);
-			vfprintf(f, fmt, ap);
-			va_end(ap);
-			fputc('\n', f);
-			fclose(f);
-			return;
-		}
-	}
-}
-
-static void at_report(double t0, double t1, double t2)
-{
-	static int n = 0;
-	static double s_enf = 0.0, s_ack = 0.0, mx = 0.0;
-
-	n++;
-	s_enf += (t1 - t0);
-	s_ack += (t2 - t1);
-	if ((t2 - t1) > mx)
-		mx = (t2 - t1);
-	if ((n == 1) || ((n % 50) == 0))
-		at_log_line("ACKTIME ts=%.0f n=%d enframe=%.1fms sendack=%.1fms ackmax=%.1fms",
-		            t0, n, s_enf / n, s_ack / n, mx);
-}
-
 static UINT rdpgfx_recv_end_frame_pdu(RDPGFX_CHANNEL_CALLBACK* callback, wStream* s)
 {
 	RDPGFX_END_FRAME_PDU pdu;
@@ -915,7 +858,6 @@ static UINT rdpgfx_recv_end_frame_pdu(RDPGFX_CHANNEL_CALLBACK* callback, wStream
 	RDPGFX_PLUGIN* gfx = (RDPGFX_PLUGIN*)callback->plugin;
 	RdpgfxClientContext* context = (RdpgfxClientContext*)gfx->iface.pInterface;
 	UINT error = CHANNEL_RC_OK;
-	double at_t0 = 0.0, at_t1 = 0.0, at_t2 = 0.0;
 
 	if (Stream_GetRemainingLength(s) < RDPGFX_END_FRAME_PDU_SIZE)
 	{
@@ -925,7 +867,6 @@ static UINT rdpgfx_recv_end_frame_pdu(RDPGFX_CHANNEL_CALLBACK* callback, wStream
 
 	Stream_Read_UINT32(s, pdu.frameId); /* frameId (4 bytes) */
 	DEBUG_RDPGFX(gfx->log, "RecvEndFramePdu: frameId: %" PRIu32 "", pdu.frameId);
-	at_t0 = at_epoch_ms();
 
 	if (context)
 	{
@@ -938,8 +879,6 @@ static UINT rdpgfx_recv_end_frame_pdu(RDPGFX_CHANNEL_CALLBACK* callback, wStream
 			return error;
 		}
 	}
-
-	at_t1 = at_epoch_ms();
 
 	gfx->TotalDecodedFrames++;
 
@@ -967,9 +906,6 @@ static UINT rdpgfx_recv_end_frame_pdu(RDPGFX_CHANNEL_CALLBACK* callback, wStream
 			WLog_Print(gfx->log, WLOG_ERROR,
 			           "rdpgfx_send_frame_acknowledge_pdu failed with error %" PRIu32 "", error);
 	}
-
-	at_t2 = at_epoch_ms();
-	at_report(at_t0, at_t1, at_t2);
 
 	switch (gfx->ConnectionCaps.version)
 	{
