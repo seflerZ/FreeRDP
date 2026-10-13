@@ -68,6 +68,11 @@
 #include <string.h>
 #include "h264.h"
 
+#if defined(__ARM_NEON) || defined(__ARM_NEON__)
+#include <arm_neon.h>
+#define MC_HAVE_NEON 1
+#endif
+
 /* OMX 颜色格式值(NDK 未导出这些常量,手写) */
 enum
 {
@@ -448,31 +453,34 @@ static BOOL copy_yuv420_to_context(H264_CONTEXT* h264, const uint8_t* src, size_
 	}
 	else
 	{
-		/* semiplanar:UV 交错,去交错到 U/V 两个平面 */
+		/* semiplanar:UV 交错,去交错到 U/V 两个平面。
+		   row 的偶数下标字节是 U(NV12)/V(NV21),奇数下标是另一个 —— 正好是
+		   vld2q_u8 的去交错语义,一条指令拆 32 字节。nv21 分支提到循环外,
+		   改成选目标指针。 */
 		const uint8_t* uv = src + yBytes + (size_t)ct2 * (size_t)uvStride + (size_t)cl;
-		uint8_t* uDst = h264->pYUVData[1];
-		uint8_t* vDst = h264->pYUVData[2];
-		BOOL nv21 = (sys->colorFormat == MC_COLOR_FormatYUV420SemiPlanarNV21);
+		const BOOL nv21 = (sys->colorFormat == MC_COLOR_FormatYUV420SemiPlanarNV21);
+		uint8_t* evenDst = nv21 ? h264->pYUVData[2] : h264->pYUVData[1];
+		uint8_t* oddDst = nv21 ? h264->pYUVData[1] : h264->pYUVData[2];
 		int32_t r, c;
+
 		for (r = 0; r < ch; r++)
 		{
 			const uint8_t* row = uv + (size_t)r * (size_t)uvStride;
-			uint8_t* uRow = uDst + (size_t)r * (size_t)cw;
-			uint8_t* vRow = vDst + (size_t)r * (size_t)cw;
-			for (c = 0; c < cw; c++)
+			uint8_t* evenRow = evenDst + (size_t)r * (size_t)cw;
+			uint8_t* oddRow = oddDst + (size_t)r * (size_t)cw;
+			c = 0;
+#if defined(MC_HAVE_NEON)
+			for (; c + 16 <= cw; c += 16)
 			{
-				uint8_t a = row[(size_t)2 * c];
-				uint8_t b = row[(size_t)2 * c + 1];
-				if (nv21)
-				{
-					vRow[c] = a;
-					uRow[c] = b;
-				}
-				else
-				{
-					uRow[c] = a;
-					vRow[c] = b;
-				}
+				const uint8x16x2_t pair = vld2q_u8(row + (size_t)2 * c);
+				vst1q_u8(evenRow + c, pair.val[0]);
+				vst1q_u8(oddRow + c, pair.val[1]);
+			}
+#endif
+			for (; c < cw; c++)
+			{
+				evenRow[c] = row[(size_t)2 * c];
+				oddRow[c] = row[(size_t)2 * c + 1];
 			}
 		}
 	}
