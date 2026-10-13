@@ -33,6 +33,68 @@
 #include <freerdp/log.h>
 
 #include "h264.h"
+/* ---- YUVTIME:量 avc420_decompress 的两段(decomp / yuv),微秒 ---- */
+#include <stdio.h>
+#include <stdarg.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static double yt_now_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (double) ts.tv_sec * 1e6 + (double) ts.tv_nsec / 1e3;
+}
+
+static void yt_log_line(const char* fmt, ...)
+{
+	static const char* files[2] = {
+	    "/data/data/com.qihua.rmt/files/mctime.log",
+	    "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
+	int i;
+
+	for (i = 0; i < 2; i++)
+	{
+		FILE* f = fopen(files[i], "a");
+
+		if (f != NULL)
+		{
+			va_list ap;
+
+			va_start(ap, fmt);
+			vfprintf(f, fmt, ap);
+			va_end(ap);
+			fputc('\n', f);
+			fclose(f);
+			return;
+		}
+	}
+}
+
+static void yt_log_prepare(void)
+{
+	(void) mkdir("/data/data/com.qihua.rmt/files", 0770);
+	(void) mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
+}
+
+static void yt_report(double t0, double t1, double t2)
+{
+	static int n = 0;
+	static double s_dec = 0.0, s_yuv = 0.0;
+
+	n++;
+	s_dec += (t1 - t0);
+	s_yuv += (t2 - t1);
+	if ((n == 1) || ((n % 50) == 0))
+	{
+		yt_log_prepare();
+		yt_log_line("YUVTIME n=%d decomp=%.0fus yuv=%.0fus total=%.0fus",
+		            n, s_dec / n, s_yuv / n, (s_dec + s_yuv) / n);
+	}
+}
+
+
 
 #define TAG FREERDP_TAG("codec")
 
@@ -170,11 +232,14 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
                         RECTANGLE_16* regionRects, UINT32 numRegionRects)
 {
 	int status;
+	double yt0, yt1, yt2;
 
 	if (!h264)
 		return -1001;
 
+	yt0 = yt_now_us();
 	status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
+	yt1 = yt_now_us();
 
 	if (status == 0)
 		return 1;
@@ -185,6 +250,9 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	if (!avc_yuv_to_rgb(h264, regionRects, numRegionRects, nDstWidth, nDstHeight, nDstStep,
 	                    pDstData, DstFormat, FALSE))
 		return -1002;
+
+	yt2 = yt_now_us();
+	yt_report(yt0, yt1, yt2);
 
 	return 1;
 }

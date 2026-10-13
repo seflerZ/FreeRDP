@@ -66,6 +66,82 @@
 #include <media/NdkMediaFormat.h>
 
 #include <string.h>
+/* ---- 打点:解码器内部各段耗时(微秒),写 app 私有文件 ----
+   读法: adb shell run-as com.qihua.rmt cat files/mctime.log
+   注意:jni_freerdp_update_graphics 那种引用 liblog 的做法会 undefined,
+   这里一律写文件,不碰 logcat。 */
+#include <stdio.h>
+#include <stdarg.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static double mc_now_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (double) ts.tv_sec * 1e6 + (double) ts.tv_nsec / 1e3;
+}
+
+static long long mc_epoch_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_REALTIME, &ts);
+	return (long long) ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static void mc_log_line(const char* fmt, ...)
+{
+	static const char* files[2] = {
+	    "/data/data/com.qihua.rmt/files/mctime.log",
+	    "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
+	int i;
+
+	for (i = 0; i < 2; i++)
+	{
+		FILE* f = fopen(files[i], "a");
+
+		if (f != NULL)
+		{
+			va_list ap;
+
+			va_start(ap, fmt);
+			vfprintf(f, fmt, ap);
+			va_end(ap);
+			fputc('\n', f);
+			fclose(f);
+			return;
+		}
+	}
+}
+
+static void mc_log_prepare(void)
+{
+	(void) mkdir("/data/data/com.qihua.rmt/files", 0770);
+	(void) mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
+}
+
+static void mc_report(double t0, double t1, double t2)
+{
+	static int n = 0;
+	static double s_feed = 0.0, s_dec = 0.0, s_tot = 0.0, mx = 0.0;
+
+	n++;
+	s_feed += (t1 - t0);
+	s_dec += (t2 - t1);
+	s_tot += (t2 - t0);
+	if ((t2 - t1) > mx)
+		mx = (t2 - t1);
+	if ((n == 1) || ((n % 50) == 0))
+	{
+		mc_log_prepare();
+		mc_log_line("MCTIME ts=%lld n=%d feed=%.0fus dec=%.0fus total=%.0fus decmax=%.0fus",
+		            mc_epoch_ms(), n, s_feed / n, s_dec / n, s_tot / n, mx);
+	}
+}
+
+
 
 #include "h264.h"
 
@@ -603,6 +679,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 {
 	H264_CONTEXT_MEDIACODEC* sys;
 	int rc;
+	double mc_t0 = 0.0, mc_t1 = 0.0, mc_t2 = 0.0;
 
 	WINPR_ASSERT(h264);
 	WINPR_ASSERT(pSrcData);
@@ -616,6 +693,8 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 		return -1;
 	if (rc == 0)
 		return 0; /* 尺寸未就绪:跳过本帧(上层 status==0 → 不做 YUV→RGB) */
+
+	mc_t0 = mc_now_us();
 
 	/* ---- 喂入完整帧(必要时跨多个 input buffer) ---- */
 	{
@@ -663,6 +742,8 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 		}
 	}
 
+	mc_t1 = mc_now_us();
+
 	/* ---- 取出一帧输出(处理 format-changed,有界重试,不 spin) ---- */
 	{
 		int retries = 0;
@@ -707,6 +788,8 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 					WLog_Print(h264->log, WLOG_ERROR, "copy_yuv420_to_context failed");
 					return -1;
 				}
+				mc_t2 = mc_now_us();
+				mc_report(mc_t0, mc_t1, mc_t2);
 				return 1;
 			}
 			else if (outputBufferId == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED)
