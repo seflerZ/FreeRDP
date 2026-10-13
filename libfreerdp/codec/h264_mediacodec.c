@@ -66,6 +66,8 @@
 #include <media/NdkMediaFormat.h>
 
 #include <string.h>
+#include <time.h>
+#include <android/log.h>
 
 #include "h264.h"
 
@@ -82,6 +84,15 @@ enum
 #define MC_DEQUEUE_TIMEOUT_US 100000
 /* 放弃前的重试次数:总预算 ~1s,避免旧实现的无限 spin */
 #define MC_DEQUEUE_MAX_RETRIES 10
+
+/* 相位打点用的单调钟(微秒) */
+static double mc_now_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
+}
 
 #define RESOLVE_MEDIANDK_FUNC(sys, name)                                          \
 	({                                                                            \
@@ -541,6 +552,12 @@ static int ensure_decoder(H264_CONTEXT* h264)
 	if (sys->gAMediaFormatKeyBitRate && h264->BitRate > 0)
 		sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyBitRate,
 		                             (int32_t)h264->BitRate);
+
+	/* 低延迟:照 Moonlight 的 MediaCodecDecoderRenderer 做法,两个键一起给。
+	   "latency" 是高通专有键;"low-latency" 是 API 30+ 标准键。
+	   不认识的键会被 MediaCodec 忽略,故直接用字面量。 */
+	sys->fnAMediaFormat_setInt32(sys->inputFormat, "latency", 1);
+	sys->fnAMediaFormat_setInt32(sys->inputFormat, "low-latency", 1);
 	/* 请求 planar 420(实际格式以输出格式为准) */
 	if (sys->gAMediaFormatKeyColorFormat)
 		sys->fnAMediaFormat_setInt32(sys->inputFormat, sys->gAMediaFormatKeyColorFormat,
@@ -604,6 +621,9 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 	sys = (H264_CONTEXT_MEDIACODEC*)h264->pSystemData;
 	WINPR_ASSERT(sys);
 
+	double t0, t2, t3, t4;
+
+	t0 = mc_now_us();
 	/* 懒创建/按需重建解码器 */
 	rc = ensure_decoder(h264);
 	if (rc < 0)
@@ -657,6 +677,8 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 		}
 	}
 
+	t2 = mc_now_us();
+
 	/* ---- 取出一帧输出(处理 format-changed,有界重试,不 spin) ---- */
 	{
 		int retries = 0;
@@ -692,7 +714,11 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				}
 
 				const uint8_t* src = outputBuffer + bufferInfo.offset;
-				BOOL ok = copy_yuv420_to_context(h264, src, bufferInfo.size);
+				BOOL ok;
+
+				t3 = mc_now_us();
+				ok = copy_yuv420_to_context(h264, src, bufferInfo.size);
+				t4 = mc_now_us();
 				/* 拷贝完立即归还 output buffer(copy 模式下不跨调用持有) */
 				sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
 
@@ -700,6 +726,28 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				{
 					WLog_Print(h264->log, WLOG_ERROR, "copy_yuv420_to_context failed");
 					return -1;
+				}
+				{
+					static int mct_n = 0;
+					static double mct_in = 0, mct_dec = 0, mct_cp = 0, mct_tot = 0;
+					static double mct_max = 0;
+
+					mct_n++;
+					mct_in += t2 - t0;
+					mct_dec += t3 - t2;
+					mct_cp += t4 - t3;
+					mct_tot += t4 - t0;
+					if ((t4 - t0) > mct_max)
+						mct_max = t4 - t0;
+					if ((mct_n % 50) == 0)
+					{
+						/* 走 __android_log_print:WLog 在 Android 默认写 stderr，
+						   而现代 Android 不把 native stderr 送 logcat；WARN 级别也保证不被过滤 */
+						__android_log_print(ANDROID_LOG_WARN, "XRDP-MCTIME",
+						                    "n=%d feed=%.1fms decode=%.1fms copy=%.1fms total=%.1fms peak=%.1fms",
+						                    mct_n, mct_in / mct_n, mct_dec / mct_n,
+						                    mct_cp / mct_n, mct_tot / mct_n, mct_max);
+					}
 				}
 				return 1;
 			}
