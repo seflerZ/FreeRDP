@@ -66,6 +66,9 @@
 #include <media/NdkMediaFormat.h>
 
 #include <string.h>
+#include <stdio.h>
+#include <stdarg.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <android/log.h>
 
@@ -94,25 +97,42 @@ static double mc_now_us(void)
 	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
 }
 
-/* 日志出口:本 .so 未链接 liblog,直接引用 __android_log_print 会在链接期报
-   undefined symbol(实测 ld.lld 失败)。故照本文件加载 libmediandk 的手法,
-   运行时取符号;取不到就静默 —— 打点只用于诊断,不该影响功能。 */
-typedef int (*mc_alog_fn)(int prio, const char* tag, const char* fmt, ...);
-static mc_alog_fn g_mc_alog = NULL;
-
-static void mc_log_open(void)
+/* 诊断日志出口:【写文件】而不是 logcat。
+   实测荣耀 Magic V2(VER-AN10)即使打开日志开关,logcat 里也没有该 app 的 native 输出
+   (整机 2119 行全是系统日志);且直接引用 __android_log_print 会在链接期 undefined。
+   写 app 自己的私有目录可同时绕开这两件事,且无需任何权限。
+   读法: adb shell run-as com.qihua.rmt cat files/mctime.log
+   注: 包名 com.qihua.rmt 是 aRDP flavor,换 flavor 需同步改这里。 */
+static void mc_log_line(const char* fmt, ...)
 {
-	HMODULE h;
+	static const char* files[2] = {
+	    "/data/data/com.qihua.rmt/files/mctime.log",
+	    "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
+	int i;
 
-	if (g_mc_alog != NULL)
+	for (i = 0; i < 2; i++)
 	{
-		return;
+		FILE* f = fopen(files[i], "a");
+
+		if (f != NULL)
+		{
+			va_list ap;
+
+			va_start(ap, fmt);
+			vfprintf(f, fmt, ap);
+			va_end(ap);
+			fputc('\n', f);
+			fclose(f);
+			return;
+		}
 	}
-	h = LoadLibraryA("liblog.so");
-	if (h != NULL)
-	{
-		g_mc_alog = (mc_alog_fn) GetProcAddress(h, "__android_log_print");
-	}
+}
+
+/* 首次写入前把目录建出来(私有目录下的 files/ 未必存在) */
+static void mc_log_prepare(void)
+{
+	(void) mkdir("/data/data/com.qihua.rmt/files", 0770);
+	(void) mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
 }
 
 #define RESOLVE_MEDIANDK_FUNC(sys, name)                                          \
@@ -592,6 +612,8 @@ static int ensure_decoder(H264_CONTEXT* h264)
 	}
 
 	status = sys->fnAMediaCodec_start(sys->decoder);
+	mc_log_prepare();
+	mc_log_line("MCTIME codec start status=%d %ux%u", (int)status, h264->width, h264->height);
 	if (status != AMEDIA_OK)
 	{
 		WLog_Print(h264->log, WLOG_ERROR, "AMediaCodec_start failed: %d", status);
@@ -760,18 +782,12 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 					mct_tot += t4 - t0;
 					if ((t4 - t0) > mct_max)
 						mct_max = t4 - t0;
-					if ((mct_n % 50) == 0)
+					if ((mct_n == 1) || ((mct_n % 50) == 0))
 					{
-						/* 走 logcat:WLog 在 Android 默认写 stderr,而现代 Android
-						   不把 native stderr 送 logcat;WARN 级别也保证不被过滤 */
-						mc_log_open();
-						if (g_mc_alog != NULL)
-						{
-							g_mc_alog(ANDROID_LOG_WARN, "XRDP-MCTIME",
-							          "n=%d feed=%.1fms decode=%.1fms copy=%.1fms total=%.1fms peak=%.1fms",
-							          mct_n, mct_in / mct_n, mct_dec / mct_n,
-							          mct_cp / mct_n, mct_tot / mct_n, mct_max);
-						}
+						mc_log_prepare();
+						mc_log_line("MCTIME n=%d feed=%.1fms decode=%.1fms copy=%.1fms total=%.1fms peak=%.1fms",
+						            mct_n, mct_in / mct_n, mct_dec / mct_n,
+						            mct_cp / mct_n, mct_tot / mct_n, mct_max);
 					}
 				}
 				return 1;
