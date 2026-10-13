@@ -1098,7 +1098,12 @@ static UINT gdi_CreateSurface(RdpgfxClientContext* context,
 			break;
 
 		case GFX_PIXEL_FORMAT_XRGB_8888:
-			surface->format = PIXEL_FORMAT_BGRX32;
+			/* 与 gdi->dstFormat(RGBA32/RGBX32 族) 对齐 —— 实测服务端发的是
+			   XRGB_8888,走的就是这一支。原值 PIXEL_FORMAT_BGRX32(=0x20040888),
+			   换成 RGBX32(=0x20030888) 后与 dstFormat 完全相等,
+			   gdi_OutputUpdate 里每帧 200 万像素的 R/B 交换直接消失(实测 23.8ms/帧)。
+			   回退:改回 PIXEL_FORMAT_BGRX32。 */
+			surface->format = PIXEL_FORMAT_RGBX32;
 			break;
 
 		default:
