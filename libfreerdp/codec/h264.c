@@ -35,6 +35,44 @@
 #include "h264.h"
 #define TAG FREERDP_TAG("codec")
 
+/* ---- 临时打点:产线调试用,与 gfx.c 写同一个文件,单位统一微秒(标签带 us) ---- */
+#include <stdarg.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static double mc_now_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
+}
+
+static void mc_log(const char* fmt, ...)
+{
+	FILE* f;
+	va_list ap;
+	static const char* paths[2] = {"/data/data/com.qihua.rmt/files/mctime.log",
+	                               "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
+	int i;
+
+	(void)mkdir("/data/data/com.qihua.rmt/files", 0770);
+	(void)mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
+	for (i = 0; i < 2; i++)
+	{
+		f = fopen(paths[i], "a");
+		if (!f)
+			continue;
+		va_start(ap, fmt);
+		vfprintf(f, fmt, ap);
+		va_end(ap);
+		fputc('\n', f);
+		fclose(f);
+		return;
+	}
+}
+
 static BOOL avc444_ensure_buffer(H264_CONTEXT* h264, DWORD nDstHeight);
 
 BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width, UINT32 height)
@@ -169,11 +207,14 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
                         RECTANGLE_16* regionRects, UINT32 numRegionRects)
 {
 	int status;
+	double t0, t1, t2;
 
 	if (!h264)
 		return -1001;
 
+	t0 = mc_now_us();
 	status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
+	t1 = mc_now_us();
 
 	if (status == 0)
 		return 1;
@@ -184,6 +225,36 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	if (!avc_yuv_to_rgb(h264, regionRects, numRegionRects, nDstWidth, nDstHeight, nDstStep,
 	                    pDstData, DstFormat, FALSE))
 		return -1002;
+	t2 = mc_now_us();
+
+	/* period = 相邻两次解码入口的间隔,即整帧墙钟(含等网络/解析/前面所有阶段)。
+	   判据:period ≈ decomp+yuv+gfx ⇒ 客户端算力受限;period 明显更大 ⇒ 主要卡在等服务端。
+	   只在间隔 <200ms 时累加,避免拖一下停一下把空闲时间算进平均。 */
+	{
+		static UINT64 n = 0, nPeriod = 0;
+		static double prevT0 = 0, accPeriod = 0, accDec = 0, accYuv = 0, accOwn = 0;
+
+		n++;
+		accDec += t1 - t0;
+		accYuv += t2 - t1;
+		accOwn += t2 - t0;
+		if (prevT0 > 0)
+		{
+			const double dt = t0 - prevT0;
+
+			if (dt < 200000.0)
+			{
+				accPeriod += dt;
+				nPeriod++;
+			}
+		}
+		prevT0 = t0;
+
+		if ((n % 50) == 0)
+			mc_log("AVC420 n=%llu period=%.0fus decomp=%.0fus yuv=%.0fus own=%.0fus",
+			       (unsigned long long)n, nPeriod ? accPeriod / (double)nPeriod : 0.0, accDec / n,
+			       accYuv / n, accOwn / n);
+	}
 
 	return 1;
 }

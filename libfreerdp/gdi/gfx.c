@@ -31,6 +31,44 @@
 
 #define TAG FREERDP_TAG("gdi")
 
+/* ---- 临时打点:与 h264.c 写同一个文件,单位统一微秒(标签带 us) ---- */
+#include <stdarg.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static double mc_now_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
+}
+
+static void mc_log(const char* fmt, ...)
+{
+	FILE* f;
+	va_list ap;
+	static const char* paths[2] = {"/data/data/com.qihua.rmt/files/mctime.log",
+	                               "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
+	int i;
+
+	(void)mkdir("/data/data/com.qihua.rmt/files", 0770);
+	(void)mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
+	for (i = 0; i < 2; i++)
+	{
+		f = fopen(paths[i], "a");
+		if (!f)
+			continue;
+		va_start(ap, fmt);
+		vfprintf(f, fmt, ap);
+		va_end(ap);
+		fputc('\n', f);
+		fclose(f);
+		return;
+	}
+}
+
 static BOOL is_rect_valid(const RECTANGLE_16* rect, size_t width, size_t height)
 {
 	if (!rect)
@@ -140,6 +178,8 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 	double sx, sy;
 	rdpUpdate* update = gdi->context->update;
 	int sc_fast = 0;
+	double t0, t1, t2;
+	UINT64 px = 0;
 
 	if (gdi->suppressOutput)
 		return CHANNEL_RC_OK;
@@ -158,6 +198,8 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 	if (!(rects = region16_rects(&surface->invalidRegion, &nbRects)) || !nbRects)
 		return CHANNEL_RC_OK;
 
+	t0 = mc_now_us();
+	t1 = t0;
 	if (!update_begin_paint(update))
 		goto fail;
 
@@ -171,6 +213,8 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 		const UINT32 sheight = rects[i].bottom - rects[i].top;
 		const UINT32 dwidth = MIN((UINT32)(swidth * sx), (UINT32)gdi->width - nXDst);
 		const UINT32 dheight = MIN((UINT32)(sheight * sy), (UINT32)gdi->height - nYDst);
+
+		px += (UINT64)dwidth * dheight;
 
 		if (sc_fast)
 		{
@@ -194,11 +238,31 @@ static UINT gdi_OutputUpdate(rdpGdi* gdi, gdiGfxSurface* surface)
 		                     (INT32)dheight);
 	}
 
+	t1 = mc_now_us();
 	rc = CHANNEL_RC_OK;
 fail:
 
 	if (!update_end_paint(update))
 		rc = ERROR_INTERNAL_ERROR;
+	t2 = mc_now_us();
+
+	/* blit = surface→primary 的 freerdp_image_copy 循环; paint = update_end_paint,
+	   里面是 android_end_paint → JNI OnGraphicsUpdate(同步部分,不含 Java 异步重绘)。
+	   px 是本次实际拷贝像素数 —— 拖大窗口时脏区大,这一项会明显涨。 */
+	{
+		static UINT64 gn = 0;
+		static double gBlit = 0, gPaint = 0;
+		static UINT64 gPx = 0;
+
+		gn++;
+		gBlit += t1 - t0;
+		gPaint += t2 - t1;
+		gPx += px;
+		if ((gn % 50) == 0)
+			mc_log("GFX n=%llu blit=%.0fus paint=%.0fus px=%.0fK rects=%u",
+			       (unsigned long long)gn, gBlit / gn, gPaint / gn, (double)gPx / gn / 1000.0,
+			       nbRects);
+	}
 
 	region16_clear(&(surface->invalidRegion));
 	return rc;

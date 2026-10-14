@@ -73,6 +73,44 @@
 #define MC_HAVE_NEON 1
 #endif
 
+/* ---- 临时打点:与 h264.c / gfx.c 写同一个文件,单位统一微秒(标签带 us) ---- */
+#include <stdarg.h>
+#include <stdio.h>
+#include <sys/stat.h>
+#include <time.h>
+
+static double mc_now_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
+}
+
+static void mc_log(const char* fmt, ...)
+{
+	FILE* f;
+	va_list ap;
+	static const char* paths[2] = {"/data/data/com.qihua.rmt/files/mctime.log",
+	                               "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
+	int i;
+
+	(void)mkdir("/data/data/com.qihua.rmt/files", 0770);
+	(void)mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
+	for (i = 0; i < 2; i++)
+	{
+		f = fopen(paths[i], "a");
+		if (!f)
+			continue;
+		va_start(ap, fmt);
+		vfprintf(f, fmt, ap);
+		va_end(ap);
+		fputc('\n', f);
+		fclose(f);
+		return;
+	}
+}
+
 /* OMX 颜色格式值(NDK 未导出这些常量,手写) */
 enum
 {
@@ -623,6 +661,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 {
 	H264_CONTEXT_MEDIACODEC* sys;
 	int rc;
+	double t0, t1, tWant, t2;
 
 	WINPR_ASSERT(h264);
 	WINPR_ASSERT(pSrcData);
@@ -637,6 +676,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 	if (rc == 0)
 		return 0; /* 尺寸未就绪:跳过本帧(上层 status==0 → 不做 YUV→RGB) */
 
+	t0 = mc_now_us();
 
 	/* ---- 喂入完整帧(必要时跨多个 input buffer) ---- */
 	{
@@ -684,6 +724,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 		}
 	}
 
+	t1 = mc_now_us();
 
 	/* ---- 取出一帧输出(处理 format-changed,有界重试,不 spin) ---- */
 	{
@@ -701,6 +742,8 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				uint8_t* outputBuffer = sys->fnAMediaCodec_getOutputBuffer(sys->decoder,
 				                                                           outputBufferId,
 				                                                           &outputBufferSize);
+
+				tWant = mc_now_us();
 				if (!outputBuffer)
 				{
 					WLog_Print(h264->log, WLOG_ERROR, "getOutputBuffer failed");
@@ -721,6 +764,8 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 
 				const uint8_t* src = outputBuffer + bufferInfo.offset;
 				BOOL ok = copy_yuv420_to_context(h264, src, bufferInfo.size);
+
+				t2 = mc_now_us();
 				/* 拷贝完立即归还 output buffer(copy 模式下不跨调用持有) */
 				sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
 
@@ -728,6 +773,23 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				{
 					WLog_Print(h264->log, WLOG_ERROR, "copy_yuv420_to_context failed");
 					return -1;
+				}
+
+				/* wait = 阻塞在 dequeueOutputBuffer 上等硬解出图;copy = 解码帧→planar 缓冲。
+				   单位微秒,每 50 帧一行。 */
+				{
+					static UINT64 mn = 0;
+					static double mFeed = 0, mWait = 0, mCopy = 0, mWmax = 0;
+
+					mn++;
+					mFeed += t1 - t0;
+					mWait += tWant - t1;
+					mCopy += t2 - tWant;
+					if ((tWant - t1) > mWmax)
+						mWmax = tWant - t1;
+					if ((mn % 50) == 0)
+						mc_log("MCDEC n=%llu feed=%.0fus wait=%.0fus copy=%.0fus waitmax=%.0fus",
+						       (unsigned long long)mn, mFeed / mn, mWait / mn, mCopy / mn, mWmax);
 				}
 				return 1;
 			}
