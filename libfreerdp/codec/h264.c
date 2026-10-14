@@ -360,8 +360,9 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	   只在间隔 <200ms 时累加,避免拖一下停一下把空闲时间算进平均。 */
 #if MC_PROBE
 	{
-		static UINT64 n = 0, nPeriod = 0;
+		static UINT64 n = 0, nPeriod = 0, nJit = 0;
 		static double prevT0 = 0, accPeriod = 0, accDec = 0, accYuv = 0, accOwn = 0;
+		static double maxPeriod = 0;
 
 		n++;
 		accDec += t1 - t0;
@@ -375,14 +376,22 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 			{
 				accPeriod += dt;
 				nPeriod++;
+				/* 抖动计数:周期超过 25ms 的帧(60fps 该是 16.7ms)。
+				   和 vsync 漂移区分 —— 漂移只会让个别帧多等一个 vsync(~25ms),
+				   解码器卡顿会出现 40ms+ 的尖峰,所以同时记最大值。 */
+				if (dt > 25000.0)
+					nJit++;
+				if (dt > maxPeriod)
+					maxPeriod = dt;
 			}
 		}
 		prevT0 = t0;
 
 		if ((n % 50) == 0)
-			mc_log("AVC420 n=%llu period=%.0fus decomp=%.0fus yuv=%.0fus own=%.0fus",
+			mc_log("AVC420 n=%llu period=%.0fus decomp=%.0fus yuv=%.0fus own=%.0fus jit=%llu/%llu max=%.0fus",
 			       (unsigned long long)n, nPeriod ? accPeriod / (double)nPeriod : 0.0, accDec / n,
-			       accYuv / n, accOwn / n);
+			       accYuv / n, accOwn / n, (unsigned long long)nJit, (unsigned long long)nPeriod,
+			       maxPeriod);
 	}
 #endif
 
