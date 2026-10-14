@@ -699,13 +699,21 @@ BOOL IsProcessorFeaturePresent(DWORD ProcessorFeature)
 {
 	BOOL ret = FALSE;
 #if defined(ANDROID)
-	const uint64_t features = android_getCpuFeatures();
-
 	switch (ProcessorFeature)
 	{
 		case PF_ARM_NEON_INSTRUCTIONS_AVAILABLE:
 		case PF_ARM_NEON:
-			return features & ANDROID_CPU_ARM_FEATURE_NEON;
+#if defined(__aarch64__)
+			/* AArch64 上 Advanced SIMD 是架构强制的,但 NDK 的
+			   android_getCpuFeatures() 只在 32 位 ARM 分支里置
+			   ANDROID_CPU_ARM_FEATURE_NEON,AArch64 分支置的是
+			   ANDROID_CPU_ARM64_FEATURE_ASIMD —— 于是这个判据在 arm64 上恒为 FALSE,
+			   prim_YUV_neon / prim_colors_opt / prim_YCoCg_opt 的 NEON 实现全都注册
+			   不上,primitives 会一路退回标量 generic(实测 YUV420→RGBX32 慢 3 倍)。 */
+			return TRUE;
+#else
+			return android_getCpuFeatures() & ANDROID_CPU_ARM_FEATURE_NEON;
+#endif
 
 		default:
 			return FALSE;
