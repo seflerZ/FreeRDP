@@ -86,49 +86,43 @@ static INLINE BYTE* neon_YuvToRgbPixel(BYTE* pRGB, int16x8_t Y, int16x8_t D, int
                                        const uint8_t aPos)
 {
 	uint8x8x4_t bgrx;
-	const int32x4_t Ch = vmulq_n_s32(vmovl_s16(vget_high_s16(Y)), 256); /* Y * 256 */
-	const int32x4_t Cl = vmulq_n_s32(vmovl_s16(vget_low_s16(Y)), 256);  /* Y * 256 */
-	const int16x4_t Dh = vget_high_s16(D);
 	const int16x4_t Dl = vget_low_s16(D);
-	const int16x4_t Eh = vget_high_s16(E);
+	const int16x4_t Dh = vget_high_s16(D);
 	const int16x4_t El = vget_low_s16(E);
-	{
-		/* B = (256L * Y + 475 * (U - 128)) >> 8*/
-		const int16x4_t c475 = vdup_n_s16(475);
-		const int32x4_t CDh = vmlal_s16(Ch, Dh, c475);
-		const int32x4_t CDl = vmlal_s16(Cl, Dl, c475);
-		const int32x4_t Bh = vrshrq_n_s32(CDh, 8);
-		const int32x4_t Bl = vrshrq_n_s32(CDl, 8);
-		const int16x8_t B = vcombine_s16(vqmovn_s32(Bl), vqmovn_s32(Bh));
-		bgrx.val[bPos] = vqmovun_s16(B);
-	}
-	{
-		/* G = (256L * Y -  48 * (U - 128) - 120 * (V - 128)) >> 8 */
-		const int16x4_t c48 = vdup_n_s16(48);
-		const int16x4_t c120 = vdup_n_s16(120);
-		const int32x4_t CDh = vmlsl_s16(Ch, Dh, c48);
-		const int32x4_t CDl = vmlsl_s16(Cl, Dl, c48);
-		const int32x4_t CDEh = vmlsl_s16(CDh, Eh, c120);
-		const int32x4_t CDEl = vmlsl_s16(CDl, El, c120);
-		const int32x4_t Gh = vrshrq_n_s32(CDEh, 8);
-		const int32x4_t Gl = vrshrq_n_s32(CDEl, 8);
-		const int16x8_t G = vcombine_s16(vqmovn_s32(Gl), vqmovn_s32(Gh));
-		bgrx.val[gPos] = vqmovun_s16(G);
-	}
-	{
-		/* R = (256 * Y + 403 * (V - 128)) >> 8 */
-		const int16x4_t c403 = vdup_n_s16(403);
-		const int32x4_t CEh = vmlal_s16(Ch, Eh, c403);
-		const int32x4_t CEl = vmlal_s16(Cl, El, c403);
-		const int32x4_t Rh = vrshrq_n_s32(CEh, 8);
-		const int32x4_t Rl = vrshrq_n_s32(CEl, 8);
-		const int16x8_t R = vcombine_s16(vqmovn_s32(Rl), vqmovn_s32(Rh));
-		bgrx.val[rPos] = vqmovun_s16(R);
-	}
-	{
-		/* A */
-		bgrx.val[aPos] = vdup_n_u8(0xFF);
-	}
+	const int16x4_t Eh = vget_high_s16(E);
+	const int16x4_t c475 = vdup_n_s16(475);
+	const int16x4_t c48n = vdup_n_s16(-48);
+	const int16x4_t c120n = vdup_n_s16(-120);
+	const int16x4_t c403 = vdup_n_s16(403);
+	/* Y*256:vshll 一条指令同时完成「16→32 位加宽」和「左移 8」,
+	   替掉原来的 vmovl_s16 + vmulq_n_s32 两条 */
+	const int32x4_t Yl8 = vshll_n_s16(vget_low_s16(Y), 8);
+	const int32x4_t Yh8 = vshll_n_s16(vget_high_s16(Y), 8);
+
+/* 收尾:vrshrn_n_s32 一条指令完成「四舍五入 >>8 + 收窄到 16 位」,
+   替掉原来的 vrshrq_n_s32 + vqmovn_s32(×2) + vcombine_s16 三步。
+
+   这里的值域有界,不需要饱和:三个通道在 `>>8` 之前的范围分别是
+     B: [475*(-128), 255*256 + 475*127] = [-60800, 125605]  ⇒ >>8 得 [-238, 490]
+     G: [-(48+120)*127, 255*256 + (48+120)*128]           ⇒ >>8 得 [-84, 339]
+     R: [403*(-128), 255*256 + 403*127]                   ⇒ >>8 得 [-202, 454]
+   全都远在 int16 范围内,所以旧的 vqmovn_s32 那一步从来没有真正夹过值,
+   用不饱和的 vrshrn 结果逐位相同(而且是 AArch32/AArch64 都有的指令)。 */
+#define NEON_NARROW(lo32, hi32) \
+	vqmovun_s16(vcombine_s16(vrshrn_n_s32((lo32), 8), vrshrn_n_s32((hi32), 8)))
+
+	/* B = (256*Y + 475*(U-128)) >> 8 */
+	bgrx.val[bPos] = NEON_NARROW(vmlal_s16(Yl8, Dl, c475), vmlal_s16(Yh8, Dh, c475));
+	/* G = (256*Y - 48*(U-128) - 120*(V-128)) >> 8 */
+	bgrx.val[gPos] = NEON_NARROW(vmlal_s16(vmlal_s16(Yl8, Dl, c48n), El, c120n),
+	                             vmlal_s16(vmlal_s16(Yh8, Dh, c48n), Eh, c120n));
+	/* R = (256*Y + 403*(V-128)) >> 8 */
+	bgrx.val[rPos] = NEON_NARROW(vmlal_s16(Yl8, El, c403), vmlal_s16(Yh8, Eh, c403));
+	/* A */
+	bgrx.val[aPos] = vdup_n_u8(0xFF);
+
+#undef NEON_NARROW
+
 	vst4_u8(pRGB, bgrx);
 	pRGB += 32;
 	return pRGB;
@@ -162,18 +156,16 @@ static INLINE pstatus_t neon_YUV420ToX(const BYTE* const pSrc[3], const UINT32 s
 
 		for (x = 0; x < nWidth - pad;)
 		{
-			const uint8x8_t Uraw = vld1_u8(pU);
-			const uint8x8x2_t Uu = vzip_u8(Uraw, Uraw);
-			const int16x8_t U1 = vreinterpretq_s16_u16(vmovl_u8(Uu.val[0]));
-			const int16x8_t U2 = vreinterpretq_s16_u16(vmovl_u8(Uu.val[1]));
-			const uint8x8_t Vraw = vld1_u8(pV);
-			const uint8x8x2_t Vu = vzip_u8(Vraw, Vraw);
-			const int16x8_t V1 = vreinterpretq_s16_u16(vmovl_u8(Vu.val[0]));
-			const int16x8_t V2 = vreinterpretq_s16_u16(vmovl_u8(Vu.val[1]));
-			const int16x8_t D1 = vsubq_s16(U1, c128);
-			const int16x8_t E1 = vsubq_s16(V1, c128);
-			const int16x8_t D2 = vsubq_s16(U2, c128);
-			const int16x8_t E2 = vsubq_s16(V2, c128);
+			/* 先把 8 个 U 字节整体加宽到 16 位,再在 16 位上把每个值复制成相邻
+			   两份 —— 比原来的 vzip_u8 + vmovl_u8×2 少一条指令,数据布局相同。 */
+			const uint16x8_t Uraw = vmovl_u8(vld1_u8(pU));
+			const uint16x8x2_t Uu = vzipq_u16(Uraw, Uraw);
+			const uint16x8_t Vraw = vmovl_u8(vld1_u8(pV));
+			const uint16x8x2_t Vu = vzipq_u16(Vraw, Vraw);
+			const int16x8_t D1 = vsubq_s16(vreinterpretq_s16_u16(Uu.val[0]), c128);
+			const int16x8_t D2 = vsubq_s16(vreinterpretq_s16_u16(Uu.val[1]), c128);
+			const int16x8_t E1 = vsubq_s16(vreinterpretq_s16_u16(Vu.val[0]), c128);
+			const int16x8_t E2 = vsubq_s16(vreinterpretq_s16_u16(Vu.val[1]), c128);
 			{
 				const uint8x8_t Y1u = vld1_u8(pY1);
 				const int16x8_t Y1 = vreinterpretq_s16_u16(vmovl_u8(Y1u));

@@ -27,17 +27,65 @@
 #ifndef FREERDP_MC_PROBE_H
 #define FREERDP_MC_PROBE_H
 
-#define MC_PROBE 0
+#define MC_PROBE 1
 
 #if MC_PROBE
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #define MC_MARK(v) ((v) = mc_now_us())
 #define MC_MARK_CPU(v) ((v) = mc_now_cpu_us())
+
+/* 当前线程此刻跑在哪个 CPU 上(/proc/thread-self/stat 的第 39 个字段 = processor)。
+   用来判断会话线程被调度到了大核还是小核 —— YUV→RGB 这条 NEON 内核在两种核上
+   能差 2~3 倍,2026-10-14 排查时就是靠这个字段把"内核写得烂"和"跑错核"分开的。 */
+static inline int mc_cur_cpu(void)
+{
+	char buf[512];
+	char* p;
+	int fd;
+	int i;
+	ssize_t n;
+
+	fd = open("/proc/thread-self/stat", O_RDONLY);
+
+	if (fd < 0)
+		return -1;
+
+	n = read(fd, buf, sizeof(buf) - 1);
+	close(fd);
+
+	if (n <= 0)
+		return -1;
+
+	buf[n] = '\0';
+	p = strrchr(buf, ')'); /* 第 2 个字段 comm 带括号且可能含空格,从最后一个 ')' 之后数 */
+
+	if (!p)
+		return -1;
+
+	/* ')' 之后从第 3 个字段(state)开始;processor 是第 39 个 ⇒ 跳过 36 段 */
+	for (i = 0; i < 36; i++)
+	{
+		while ((*p == ' ') || (*p == '\t'))
+			p++;
+
+		while ((*p != '\0') && (*p != ' ') && (*p != '\t'))
+			p++;
+	}
+
+	while ((*p == ' ') || (*p == '\t'))
+		p++;
+
+	return (int)strtol(p, NULL, 10);
+}
 
 /* 单调墙钟,微秒 */
 static inline double mc_now_us(void)

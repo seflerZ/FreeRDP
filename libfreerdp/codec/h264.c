@@ -180,11 +180,12 @@ static BOOL avc_yuv_to_rgb(H264_CONTEXT* h264, const RECTANGLE_16* regionRects,
 		yWall += mc_now_us() - w0;
 		yCpu += mc_now_cpu_us() - c0;
 		if ((yn % 50) == 0)
-			mc_log("YUV n=%llu wall=%.0fus cpu=%.0fus ratio=%.2f generic=%d",
+			mc_log("YUV n=%llu wall=%.0fus cpu=%.0fus ratio=%.2f generic=%d core=%d",
 			       (unsigned long long)yn, yWall / yn, yCpu / yn,
 			       (yCpu > 0) ? (yWall / yCpu) : 0.0,
 			       (prims->YUV420ToRGB_8u_P3AC4R ==
-			        primitives_get_generic()->YUV420ToRGB_8u_P3AC4R) ? 1 : 0);
+			        primitives_get_generic()->YUV420ToRGB_8u_P3AC4R) ? 1 : 0,
+			       mc_cur_cpu());
 	}
 #endif
 
