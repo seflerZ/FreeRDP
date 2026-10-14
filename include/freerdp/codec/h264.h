@@ -28,6 +28,9 @@
 
 typedef struct _H264_CONTEXT H264_CONTEXT;
 
+/* 领先一帧时随帧携带的脏矩形上限。超了就退化成包围盒(宁可多刷,不可漏刷)。 */
+#define H264_MAX_REGION_RECTS 64
+
 typedef BOOL (*pfnH264SubsystemInit)(H264_CONTEXT* h264);
 typedef void (*pfnH264SubsystemUninit)(H264_CONTEXT* h264);
 
@@ -75,6 +78,20 @@ struct _H264_CONTEXT
 	UINT32 numSystemData;
 	void* pSystemData;
 	H264_CONTEXT_SUBSYSTEM* subsystem;
+
+	/* 解码领先一帧(只有 MediaCodec 后端支持,见 h264_mediacodec.c)。
+
+	   lookahead 为真时,Decompress 返回的 pYUVData 是**上一次**喂进去那帧的像素,与本次
+	   调用传入的 regionRects 不再对应 —— 实际被转换的那帧的 rects 走 convertedRects/
+	   convertedNumRects,调用方(gfx.c)标脏必须用它们,否则会把上一帧的像素标到本帧的
+	   脏区上,画面漏块。 */
+	BOOL lookahead;
+	UINT32 queuedAUs;                               /* 已喂给解码器、还没取出来的 AU 数 */
+	RECTANGLE_16 rectBuf[2][H264_MAX_REGION_RECTS]; /* 两个轮换缓冲 */
+	RECTANGLE_16* pendingRects;                     /* 指向 rectBuf 之一:在途 AU 的 rects */
+	UINT32 pendingNumRects;
+	RECTANGLE_16* convertedRects;                   /* 指向另一个:本次实际转换出的 rects */
+	UINT32 convertedNumRects;
 
 	void* lumaData;
 	wLog* log;

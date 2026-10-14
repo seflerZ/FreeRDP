@@ -624,13 +624,36 @@ static int android_freerdp_run(freerdp* instance)
 		}
 
 		count += tmp;
-		status = WaitForMultipleObjects(count, handles, FALSE, INFINITE);
+
+		/* H.264 解码领先一帧时,最后收到的那帧没有"下一帧"来触发转换。有在途帧就把
+		   等待超时改短,好在画面停下来之后把它补吐出来 —— 否则画面会一直停在倒数
+		   第二帧。没有在途帧时仍是 INFINITE,空闲零开销。 */
+		{
+			rdpGdi* gdi = context->gdi;
+			DWORD waitTimeout = INFINITE;
+
+			if (gdi && gdi->gfx && gdi_gfx_frame_pending(gdi->gfx))
+				waitTimeout = 30;
+
+			status = WaitForMultipleObjects(count, handles, FALSE, waitTimeout);
+		}
 
 		if (status == WAIT_FAILED)
 		{
 			WLog_ERR(TAG, "WaitForMultipleObjects failed with %" PRIu32 " [%08lX]", status,
 			         GetLastError());
 			break;
+		}
+
+		/* 超时不是错误,只说明这次没有网络事件:趁机把在途的那帧补上 */
+		if (status == WAIT_TIMEOUT)
+		{
+			rdpGdi* gdi = context->gdi;
+
+			if (gdi && gdi->gfx)
+				gdi_gfx_flush_frame(gdi->gfx);
+
+			status = WAIT_OBJECT_0;
 		}
 
 		if (!freerdp_check_event_handles(context))

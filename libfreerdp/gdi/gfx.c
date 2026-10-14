@@ -29,6 +29,8 @@
 #include <freerdp/gdi/gfx.h>
 #include <freerdp/gdi/region.h>
 
+#include "../codec/h264.h"
+
 #define TAG FREERDP_TAG("gdi")
 
 /* ---- 临时打点:与 h264.c 写同一个文件,单位统一微秒(标签带 us) ---- */
@@ -309,6 +311,103 @@ static UINT gdi_UpdateSurfaces(RdpgfxClientContext* context)
 	return status;
 }
 
+/* 有没有 surface 的解码还领先着一帧没吐出来。客户端主循环靠它决定要不要把等待
+   超时改成短的,好及时把尾帧补上。 */
+BOOL gdi_gfx_frame_pending(RdpgfxClientContext* context)
+{
+	UINT16 count;
+	UINT16 index;
+	UINT16* pSurfaceIds = NULL;
+	BOOL pending = FALSE;
+	rdpGdi* gdi;
+
+	if (!context)
+		return FALSE;
+
+	gdi = (rdpGdi*)context->custom;
+
+	if (!gdi)
+		return FALSE;
+
+	EnterCriticalSection(&context->mux);
+	context->GetSurfaceIds(context, &pSurfaceIds, &count);
+
+	for (index = 0; index < count; index++)
+	{
+		const gdiGfxSurface* surface =
+		    (const gdiGfxSurface*)context->GetSurfaceData(context, pSurfaceIds[index]);
+
+		if (!surface || !surface->h264)
+			continue;
+
+		if (surface->h264->lookahead && surface->h264->pendingNumRects &&
+		    surface->h264->queuedAUs)
+		{
+			pending = TRUE;
+			break;
+		}
+	}
+
+	free(pSurfaceIds);
+	LeaveCriticalSection(&context->mux);
+	return pending;
+}
+
+/* 把在途的那帧补吐出来并标脏,再走一次 UpdateSurfaces 触发 blit + paint。
+   没有它的话,每次活动收尾时最后收到的那帧永远画不出来(没有下一帧来触发转换)。 */
+UINT gdi_gfx_flush_frame(RdpgfxClientContext* context)
+{
+	UINT16 count;
+	UINT16 index;
+	UINT16* pSurfaceIds = NULL;
+	UINT status = CHANNEL_RC_OK;
+	BOOL flushed = FALSE;
+	rdpGdi* gdi;
+
+	if (!context)
+		return CHANNEL_RC_OK;
+
+	gdi = (rdpGdi*)context->custom;
+
+	if (!gdi)
+		return CHANNEL_RC_OK;
+
+	EnterCriticalSection(&context->mux);
+	context->GetSurfaceIds(context, &pSurfaceIds, &count);
+
+	for (index = 0; index < count; index++)
+	{
+		gdiGfxSurface* surface =
+		    (gdiGfxSurface*)context->GetSurfaceData(context, pSurfaceIds[index]);
+		UINT32 i;
+
+		if (!surface || !surface->h264)
+			continue;
+
+		/* avc420_flush_pending 自己会挡掉"非领先一帧 / 没有在途帧"的情况,
+		   所以不会为了 drain 空气而去懒创建一个解码器 */
+		if (!avc420_flush_pending(surface->h264, surface->data, surface->format, surface->scanline,
+		                          surface->width, surface->height))
+			continue;
+
+		for (i = 0; i < surface->h264->convertedNumRects; i++)
+		{
+			region16_union_rect(&(surface->invalidRegion), &(surface->invalidRegion),
+			                    (RECTANGLE_16*)&(surface->h264->convertedRects[i]));
+		}
+
+		flushed = TRUE;
+	}
+
+	free(pSurfaceIds);
+	LeaveCriticalSection(&context->mux);
+
+	if (flushed)
+		IFCALLRET(context->UpdateSurfaces, status, context);
+
+	return status;
+}
+
 /**
  * Function description
  *
@@ -558,6 +657,8 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 	gdiGfxSurface* surface;
 	RDPGFX_H264_METABLOCK* meta;
 	RDPGFX_AVC420_BITMAP_STREAM* bs;
+	const RECTANGLE_16* dirtyRects;
+	UINT32 numDirtyRects;
 
 	surface = (gdiGfxSurface*)context->GetSurfaceData(context, cmd->surfaceId);
 
@@ -601,14 +702,25 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		return CHANNEL_RC_OK;
 	}
 
-	for (i = 0; i < meta->numRegionRects; i++)
+	dirtyRects = meta->regionRects;
+	numDirtyRects = meta->numRegionRects;
+
+	/* 领先一帧时,写进 surface->data 的是上一帧的像素,所以必须用 h264 带回来的
+	   "实际被转换的那帧"的 rects 标脏 —— 用 meta(本帧)的会把脏区标错位置。 */
+	if (surface->h264->lookahead)
+	{
+		dirtyRects = surface->h264->convertedRects;
+		numDirtyRects = surface->h264->convertedNumRects;
+	}
+
+	for (i = 0; i < numDirtyRects; i++)
 	{
 		region16_union_rect(&(surface->invalidRegion), &(surface->invalidRegion),
-		                    (RECTANGLE_16*)&(meta->regionRects[i]));
+		                    (RECTANGLE_16*)&(dirtyRects[i]));
 	}
 
 	status = IFCALLRESULT(CHANNEL_RC_OK, context->UpdateSurfaceArea, context, surface->surfaceId,
-	                      meta->numRegionRects, meta->regionRects);
+	                      numDirtyRects, dirtyRects);
 
 	if (status != CHANNEL_RC_OK)
 		goto fail;

@@ -125,6 +125,11 @@ enum
 /* 放弃前的重试次数:总预算 ~1s,避免旧实现的无限 spin */
 #define MC_DEQUEUE_MAX_RETRIES 10
 
+/* flush(只取不喂)用更短的预算:它在客户端主循环里被调用,不能卡住事件处理。
+   取不到不是错误,保留在途状态下次 30ms 的 tick 再试。 */
+#define MC_FLUSH_TIMEOUT_US 2000
+#define MC_FLUSH_MAX_RETRIES 2
+
 #define RESOLVE_MEDIANDK_FUNC(sys, name)                                          \
 	({                                                                            \
 		BOOL rc = TRUE;                                                           \
@@ -556,6 +561,9 @@ static int ensure_decoder(H264_CONTEXT* h264)
 			sys->inputFormat = NULL;
 		}
 		sys->formatReady = FALSE;
+		/* 在途 AU 随旧解码器一起没了,领先一帧的状态必须一起清,否则会一直等一帧
+		   永远不会出现的输出 */
+		h264_lookahead_reset(h264);
 		needCreate = TRUE;
 	}
 
@@ -641,6 +649,7 @@ EXCEPTION:
 		sys->fnAMediaFormat_delete(sys->inputFormat);
 		sys->inputFormat = NULL;
 	}
+	h264_lookahead_reset(h264);
 	return -1;
 }
 
@@ -657,14 +666,159 @@ static int mediacodec_compress(H264_CONTEXT* h264, const BYTE** pSrcYuv, const U
 	return -1;
 }
 
+/* 把一整个 AU 喂进解码器(必要时跨多个 input buffer)。
+   SrcSize==0 是"只取不喂"的 flush 调用,直接当成功返回。 */
+static BOOL mediacodec_feed(H264_CONTEXT* h264, H264_CONTEXT_MEDIACODEC* sys, const BYTE* pSrcData,
+                            UINT32 SrcSize)
+{
+	UINT32 offset = 0;
+	int retries = 0;
+
+	while (offset < SrcSize)
+	{
+		ssize_t inputBufferId =
+		    sys->fnAMediaCodec_dequeueInputBuffer(sys->decoder, MC_DEQUEUE_TIMEOUT_US);
+		if (inputBufferId < 0)
+		{
+			if (inputBufferId == AMEDIACODEC_INFO_TRY_AGAIN_LATER &&
+			    retries < MC_DEQUEUE_MAX_RETRIES)
+			{
+				retries++;
+				continue;
+			}
+			WLog_Print(h264->log, WLOG_ERROR, "dequeueInputBuffer failed: %zd", inputBufferId);
+			return FALSE;
+		}
+		retries = 0;
+
+		size_t inputBufferSize = 0;
+		uint8_t* inputBuffer =
+		    sys->fnAMediaCodec_getInputBuffer(sys->decoder, inputBufferId, &inputBufferSize);
+		if (!inputBuffer || inputBufferSize == 0)
+		{
+			WLog_Print(h264->log, WLOG_ERROR, "getInputBuffer failed");
+			return FALSE;
+		}
+
+		const UINT32 copySize = ((SrcSize - offset) < inputBufferSize) ? (SrcSize - offset)
+		                                                               : (UINT32)inputBufferSize;
+		memcpy(inputBuffer, pSrcData + offset, copySize);
+		offset += copySize;
+
+		if (sys->fnAMediaCodec_queueInputBuffer(sys->decoder, inputBufferId, 0, copySize, 0, 0) !=
+		    AMEDIA_OK)
+		{
+			WLog_Print(h264->log, WLOG_ERROR, "queueInputBuffer failed");
+			return FALSE;
+		}
+	}
+
+	return TRUE;
+}
+
+/* 取出一帧输出,转成 planar 存进 h264->pYUVData。*produced 表示这次是否真取到一帧。
+   shortWait:flush 路径用,超时预算压到几毫秒(否则会拿 1 秒的预算卡住客户端主循环);
+   取不到就当作"还没解完"返回 0,让上层保留在途状态下次再试。 */
+static int mediacodec_drain(H264_CONTEXT* h264, H264_CONTEXT_MEDIACODEC* sys, BOOL shortWait,
+                            BOOL* produced)
+{
+	const int64_t timeoutUs = shortWait ? MC_FLUSH_TIMEOUT_US : MC_DEQUEUE_TIMEOUT_US;
+	const int maxRetries = shortWait ? MC_FLUSH_MAX_RETRIES : MC_DEQUEUE_MAX_RETRIES;
+	int retries = 0;
+
+	*produced = FALSE;
+
+	for (;;)
+	{
+		AMediaCodecBufferInfo bufferInfo;
+		ssize_t outputBufferId =
+		    sys->fnAMediaCodec_dequeueOutputBuffer(sys->decoder, &bufferInfo, timeoutUs);
+
+		if (outputBufferId >= 0)
+		{
+			size_t outputBufferSize = 0;
+			uint8_t* outputBuffer = sys->fnAMediaCodec_getOutputBuffer(sys->decoder, outputBufferId,
+			                                                           &outputBufferSize);
+			if (!outputBuffer)
+			{
+				WLog_Print(h264->log, WLOG_ERROR, "getOutputBuffer failed");
+				sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
+				return -1;
+			}
+
+			/* 首帧若没收到 format-changed,这里补读一次 */
+			if (!sys->formatReady)
+			{
+				AMediaFormat* fmt = sys->fnAMediaCodec_getOutputFormat(sys->decoder);
+				if (fmt)
+				{
+					parse_output_format(h264, fmt);
+					sys->fnAMediaFormat_delete(fmt);
+				}
+			}
+
+			const uint8_t* src = outputBuffer + bufferInfo.offset;
+			const BOOL ok = copy_yuv420_to_context(h264, src, bufferInfo.size);
+
+			/* 拷贝完立即归还 output buffer(copy 模式下不跨调用持有) */
+			sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
+
+			if (!ok)
+			{
+				WLog_Print(h264->log, WLOG_ERROR, "copy_yuv420_to_context failed");
+				return -1;
+			}
+
+			*produced = TRUE;
+			return 0;
+		}
+		else if (outputBufferId == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED)
+		{
+			AMediaFormat* fmt = sys->fnAMediaCodec_getOutputFormat(sys->decoder);
+			if (fmt)
+			{
+				parse_output_format(h264, fmt);
+				sys->fnAMediaFormat_delete(fmt);
+			}
+			continue;
+		}
+		else if (outputBufferId == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED)
+		{
+			continue;
+		}
+		else if (outputBufferId == AMEDIACODEC_INFO_TRY_AGAIN_LATER)
+		{
+			if (retries++ < maxRetries)
+				continue;
+			if (shortWait)
+				return 0; /* 还没解完:保留在途状态,下次 flush 再试 */
+			WLog_Print(h264->log, WLOG_WARN, "dequeueOutputBuffer timeout after %d retries",
+			           maxRetries);
+			return -1;
+		}
+		else
+		{
+			WLog_Print(h264->log, WLOG_ERROR, "dequeueOutputBuffer failed: %zd", outputBufferId);
+			return -1;
+		}
+	}
+}
+
+/*
+ * 返回码:
+ *   -1 错误
+ *    0 没喂也没产出(ensure_decoder 尺寸未就绪)—— 旧语义,上层不做 YUV→RGB
+ *    1 产出了一帧(旧语义)
+ *    2 喂了但本次无产出(仅领先一帧模式;首发那帧,以及刚被 flush 过的那次调用)
+ */
 static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize)
 {
 	H264_CONTEXT_MEDIACODEC* sys;
 	int rc;
-	double t0, t1, tWant, t2;
+	BOOL produced = FALSE;
+	const BOOL drainOnly = (SrcSize == 0);
 
 	WINPR_ASSERT(h264);
-	WINPR_ASSERT(pSrcData);
 
 	sys = (H264_CONTEXT_MEDIACODEC*)h264->pSystemData;
 	WINPR_ASSERT(sys);
@@ -676,151 +830,84 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 	if (rc == 0)
 		return 0; /* 尺寸未就绪:跳过本帧(上层 status==0 → 不做 YUV→RGB) */
 
-	t0 = mc_now_us();
-
-	/* ---- 喂入完整帧(必要时跨多个 input buffer) ---- */
+	if (h264->lookahead)
 	{
-		UINT32 offset = 0;
-		int retries = 0;
+		double t0, t1, t2;
 
-		while (offset < SrcSize)
+		t0 = mc_now_us();
+
+		/* 先取上一帧:它在上一次调用里就喂进去了,这中间已经过了十几毫秒的
+		   YUV→RGB/blit/paint,早解完了,所以这里基本不阻塞。
+		   没有在途 AU 时绝不能去 dequeue —— 那会白等满 timeout×retries。 */
+		if (h264->queuedAUs > 0)
 		{
-			ssize_t inputBufferId =
-			    sys->fnAMediaCodec_dequeueInputBuffer(sys->decoder, MC_DEQUEUE_TIMEOUT_US);
-			if (inputBufferId < 0)
-			{
-				if (inputBufferId == AMEDIACODEC_INFO_TRY_AGAIN_LATER &&
-				    retries < MC_DEQUEUE_MAX_RETRIES)
-				{
-					retries++;
-					continue;
-				}
-				WLog_Print(h264->log, WLOG_ERROR, "dequeueInputBuffer failed: %zd", inputBufferId);
+			rc = mediacodec_drain(h264, sys, drainOnly, &produced);
+			if (rc < 0)
 				return -1;
-			}
-			retries = 0;
-
-			size_t inputBufferSize = 0;
-			uint8_t* inputBuffer =
-			    sys->fnAMediaCodec_getInputBuffer(sys->decoder, inputBufferId, &inputBufferSize);
-			if (!inputBuffer || inputBufferSize == 0)
-			{
-				WLog_Print(h264->log, WLOG_ERROR, "getInputBuffer failed");
-				return -1;
-			}
-
-			UINT32 copySize = ((SrcSize - offset) < inputBufferSize) ? (SrcSize - offset)
-			                                                         : (UINT32)inputBufferSize;
-			memcpy(inputBuffer, pSrcData + offset, copySize);
-			offset += copySize;
-
-			media_status_t status = sys->fnAMediaCodec_queueInputBuffer(sys->decoder, inputBufferId,
-			                                                            0, copySize, 0, 0);
-			if (status != AMEDIA_OK)
-			{
-				WLog_Print(h264->log, WLOG_ERROR, "queueInputBuffer failed: %d", status);
-				return -1;
-			}
+			if (produced)
+				h264->queuedAUs--;
 		}
+
+		t1 = mc_now_us();
+
+		/* 再喂本帧:解码器开始干活,它的耗时与下一次调用里的 CPU 工作重叠 */
+		if (!drainOnly)
+		{
+			if (!mediacodec_feed(h264, sys, pSrcData, SrcSize))
+				return -1;
+			h264->queuedAUs++;
+		}
+
+		t2 = mc_now_us();
+
+		/* drain = 取上一帧(drainOnly 时含 flush 的短超时等待);feed = 喂本帧。
+		   单位微秒,每 50 帧一行。 */
+		{
+			static UINT64 mn = 0;
+			static double mDrain = 0, mFeed = 0, mDmax = 0;
+
+			mn++;
+			mDrain += t1 - t0;
+			mFeed += t2 - t1;
+			if ((t1 - t0) > mDmax)
+				mDmax = t1 - t0;
+			if ((mn % 50) == 0)
+				mc_log("MCDEC n=%llu drain=%.0fus feed=%.0fus drainmax=%.0fus queued=%u",
+				       (unsigned long long)mn, mDrain / mn, mFeed / mn, mDmax, h264->queuedAUs);
+		}
+
+		return produced ? 1 : 2;
 	}
 
-	t1 = mc_now_us();
-
-	/* ---- 取出一帧输出(处理 format-changed,有界重试,不 spin) ---- */
+	/* 旧路径:feed-then-dequeue。非领先一帧的场景(如 AVC444 的同帧两次解码)走这里。 */
 	{
-		int retries = 0;
+		double t0, t1, t2;
 
-		for (;;)
+		t0 = mc_now_us();
+		if (!mediacodec_feed(h264, sys, pSrcData, SrcSize))
+			return -1;
+		t1 = mc_now_us();
+
+		rc = mediacodec_drain(h264, sys, FALSE, &produced);
+		t2 = mc_now_us();
+		if (rc < 0)
+			return -1;
+
 		{
-			AMediaCodecBufferInfo bufferInfo;
-			ssize_t outputBufferId = sys->fnAMediaCodec_dequeueOutputBuffer(
-			    sys->decoder, &bufferInfo, MC_DEQUEUE_TIMEOUT_US);
+			static UINT64 mn = 0;
+			static double mFeed = 0, mWait = 0, mWmax = 0;
 
-			if (outputBufferId >= 0)
-			{
-				size_t outputBufferSize = 0;
-				uint8_t* outputBuffer = sys->fnAMediaCodec_getOutputBuffer(sys->decoder,
-				                                                           outputBufferId,
-				                                                           &outputBufferSize);
-
-				tWant = mc_now_us();
-				if (!outputBuffer)
-				{
-					WLog_Print(h264->log, WLOG_ERROR, "getOutputBuffer failed");
-					sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
-					return -1;
-				}
-
-				/* 首帧若没收到 format-changed,这里补读一次 */
-				if (!sys->formatReady)
-				{
-					AMediaFormat* fmt = sys->fnAMediaCodec_getOutputFormat(sys->decoder);
-					if (fmt)
-					{
-						parse_output_format(h264, fmt);
-						sys->fnAMediaFormat_delete(fmt);
-					}
-				}
-
-				const uint8_t* src = outputBuffer + bufferInfo.offset;
-				BOOL ok = copy_yuv420_to_context(h264, src, bufferInfo.size);
-
-				t2 = mc_now_us();
-				/* 拷贝完立即归还 output buffer(copy 模式下不跨调用持有) */
-				sys->fnAMediaCodec_releaseOutputBuffer(sys->decoder, outputBufferId, false);
-
-				if (!ok)
-				{
-					WLog_Print(h264->log, WLOG_ERROR, "copy_yuv420_to_context failed");
-					return -1;
-				}
-
-				/* wait = 阻塞在 dequeueOutputBuffer 上等硬解出图;copy = 解码帧→planar 缓冲。
-				   单位微秒,每 50 帧一行。 */
-				{
-					static UINT64 mn = 0;
-					static double mFeed = 0, mWait = 0, mCopy = 0, mWmax = 0;
-
-					mn++;
-					mFeed += t1 - t0;
-					mWait += tWant - t1;
-					mCopy += t2 - tWant;
-					if ((tWant - t1) > mWmax)
-						mWmax = tWant - t1;
-					if ((mn % 50) == 0)
-						mc_log("MCDEC n=%llu feed=%.0fus wait=%.0fus copy=%.0fus waitmax=%.0fus",
-						       (unsigned long long)mn, mFeed / mn, mWait / mn, mCopy / mn, mWmax);
-				}
-				return 1;
-			}
-			else if (outputBufferId == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED)
-			{
-				AMediaFormat* fmt = sys->fnAMediaCodec_getOutputFormat(sys->decoder);
-				if (fmt)
-				{
-					parse_output_format(h264, fmt);
-					sys->fnAMediaFormat_delete(fmt);
-				}
-				continue;
-			}
-			else if (outputBufferId == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED)
-			{
-				continue;
-			}
-			else if (outputBufferId == AMEDIACODEC_INFO_TRY_AGAIN_LATER)
-			{
-				if (retries++ < MC_DEQUEUE_MAX_RETRIES)
-					continue;
-				WLog_Print(h264->log, WLOG_WARN,
-				           "dequeueOutputBuffer timeout after %d retries", MC_DEQUEUE_MAX_RETRIES);
-				return -1;
-			}
-			else
-			{
-				WLog_Print(h264->log, WLOG_ERROR, "dequeueOutputBuffer failed: %zd", outputBufferId);
-				return -1;
-			}
+			mn++;
+			mFeed += t1 - t0;
+			mWait += t2 - t1;
+			if ((t2 - t1) > mWmax)
+				mWmax = t2 - t1;
+			if ((mn % 50) == 0)
+				mc_log("MCDEC(fifo) n=%llu feed=%.0fus wait=%.0fus waitmax=%.0fus",
+				       (unsigned long long)mn, mFeed / mn, mWait / mn, mWmax);
 		}
+
+		return produced ? 1 : 0;
 	}
 }
 

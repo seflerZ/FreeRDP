@@ -202,6 +202,86 @@ static BOOL avc_yuv_to_rgb(H264_CONTEXT* h264, const RECTANGLE_16* regionRects,
 	return TRUE;
 }
 
+void h264_lookahead_reset(H264_CONTEXT* h264)
+{
+	if (!h264)
+		return;
+
+	h264->queuedAUs = 0;
+	h264->pendingNumRects = 0;
+	h264->convertedNumRects = 0;
+}
+
+/* 把本帧的 rects 抄进 dst。超过容量就退化成所有 rects 的包围盒 —— 标脏宁可多刷,
+   不可漏刷。返回实际存下的 rects 数。 */
+static UINT32 h264_store_rects(RECTANGLE_16* dst, const RECTANGLE_16* rects, UINT32 num)
+{
+	UINT32 i;
+
+	if (!dst || !rects || !num)
+		return 0;
+
+	if (num <= H264_MAX_REGION_RECTS)
+	{
+		memcpy(dst, rects, num * sizeof(RECTANGLE_16));
+		return num;
+	}
+
+	dst[0] = rects[0];
+
+	for (i = 1; i < num; i++)
+	{
+		dst[0].left = MIN(dst[0].left, rects[i].left);
+		dst[0].top = MIN(dst[0].top, rects[i].top);
+		dst[0].right = MAX(dst[0].right, rects[i].right);
+		dst[0].bottom = MAX(dst[0].bottom, rects[i].bottom);
+	}
+
+	return 1;
+}
+
+/* 把在途的那帧吐出来并转换(只取不喂)。返回是否真的转换出了一帧。
+   取不到不是错误:保留在途状态,等下一次 tick 再试。 */
+BOOL avc420_flush_pending(H264_CONTEXT* h264, BYTE* pDstData, DWORD DstFormat, UINT32 nDstStep,
+                          UINT32 nDstWidth, UINT32 nDstHeight)
+{
+	int status;
+
+	if (!h264)
+		return FALSE;
+
+	h264->convertedNumRects = 0;
+
+	if (!h264->lookahead || !h264->pendingNumRects || !h264->queuedAUs)
+		return FALSE;
+
+	/* SrcSize==0 = 只取不喂 */
+	status = h264->subsystem->Decompress(h264, NULL, 0);
+
+	if (status != 1)
+		return FALSE; /* 还没解完 */
+
+	if (!avc_yuv_to_rgb(h264, h264->pendingRects, h264->pendingNumRects, nDstWidth, nDstHeight,
+	                    nDstStep, pDstData, DstFormat, FALSE))
+	{
+		h264_lookahead_reset(h264);
+		return FALSE;
+	}
+
+	/* 轮换缓冲,保持 convertedRects 与 pendingRects 始终指向不同的缓冲 */
+	{
+		RECTANGLE_16* const freeBuf = h264->convertedRects;
+
+		h264->convertedRects = h264->pendingRects;
+		h264->convertedNumRects = h264->pendingNumRects;
+		h264->pendingRects = freeBuf;
+		h264->pendingNumRects = 0;
+	}
+
+	h264->queuedAUs = 0;
+	return TRUE;
+}
+
 INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize, BYTE* pDstData,
                         DWORD DstFormat, UINT32 nDstStep, UINT32 nDstWidth, UINT32 nDstHeight,
                         RECTANGLE_16* regionRects, UINT32 numRegionRects)
@@ -212,19 +292,75 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	if (!h264)
 		return -1001;
 
+	/* 保险:正常情况下 h264_context_new 已经设好,这里兜住任何别的构造路径 */
+	if (!h264->pendingRects || !h264->convertedRects)
+	{
+		h264->pendingRects = h264->rectBuf[0];
+		h264->convertedRects = h264->rectBuf[1];
+		h264->pendingNumRects = 0;
+		h264->convertedNumRects = 0;
+	}
+
+	/* 只有 MediaCodec 后端实现了 dequeue-then-feed 的领先一帧语义 */
+	h264->lookahead =
+	    (h264->subsystem->name != NULL) && (strcmp(h264->subsystem->name, "MediaCodec") == 0);
+
 	t0 = mc_now_us();
 	status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
 	t1 = mc_now_us();
 
-	if (status == 0)
-		return 1;
+	h264->convertedNumRects = 0;
 
 	if (status < 0)
+	{
+		/* 出错,像素流断档:丢掉在途状态重新同步 */
+		h264_lookahead_reset(h264);
 		return status;
+	}
 
-	if (!avc_yuv_to_rgb(h264, regionRects, numRegionRects, nDstWidth, nDstHeight, nDstStep,
-	                    pDstData, DstFormat, FALSE))
+	if (status == 0)
+	{
+		/* 本帧压根没进解码器,同理重新同步 */
+		h264_lookahead_reset(h264);
+		return 1;
+	}
+
+	if (h264->lookahead)
+	{
+		RECTANGLE_16* const freeBuf = h264->convertedRects; /* 上一轮 gfx.c 已经读走 */
+		RECTANGLE_16* const inFlight = h264->pendingRects;  /* 在途 AU 的 rects */
+		const UINT32 nInFlight = h264->pendingNumRects;
+		BOOL ok = TRUE;
+
+		/* 先把本帧的 rects 抄进闲置缓冲:先存后转,转换失败也不会破坏在途状态 */
+		const UINT32 nNew = h264_store_rects(freeBuf, regionRects, numRegionRects);
+
+		/* status==2 表示"喂进去了但这次没吐出来"(首发那帧,或刚被 flush 过),此时
+		   没有任何像素被转换。status==1 时吐出来的那帧,就是上一次喂进去的在途帧,
+		   pYUVData 里是它的像素 —— 所以要用 inFlight 这组 rects 去转换和标脏。 */
+		if ((status == 1) && nInFlight)
+		{
+			ok = avc_yuv_to_rgb(h264, inFlight, nInFlight, nDstWidth, nDstHeight, nDstStep,
+			                    pDstData, DstFormat, FALSE);
+
+			if (ok)
+				h264->convertedNumRects = nInFlight;
+		}
+
+		/* 缓冲轮换:convertedRects 和 pendingRects 必须永远指向不同的缓冲,否则下次
+		   调用写新 rects 时会先把在途帧的 rects 冲掉。转换失败时 convertedNumRects
+		   保持 0,gfx.c 不会标脏。 */
+		h264->convertedRects = inFlight;
+		h264->pendingRects = freeBuf;
+		h264->pendingNumRects = nNew;
+
+		if (!ok)
+			return -1002;
+	}
+	else if (!avc_yuv_to_rgb(h264, regionRects, numRegionRects, nDstWidth, nDstHeight, nDstStep,
+	                         pDstData, DstFormat, FALSE))
 		return -1002;
+
 	t2 = mc_now_us();
 
 	/* period = 相邻两次解码入口的间隔,即整帧墙钟(含等网络/解析/前面所有阶段)。
@@ -425,6 +561,10 @@ static BOOL avc444_process_rects(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 	BYTE** ppYUVDstData = h264->pYUV444Data;
 	const UINT32* piStride = h264->iStride;
 	const BYTE* const* ppYUVData = (const BYTE* const*)h264->pYUVData;
+
+	/* AVC444 的 op==0 每帧调两次 Decompress 且每次都立刻转换,"落后一帧"语义与它
+	   根本不兼容。默认 GfxAVC444 是关的,这里只是防服务端中途切档位。 */
+	h264->lookahead = FALSE;
 
 	if (h264->subsystem->Decompress(h264, pSrcData, SrcSize) < 0)
 		return FALSE;
@@ -633,6 +773,8 @@ BOOL h264_context_reset(H264_CONTEXT* h264, UINT32 width, UINT32 height)
 
 	h264->width = width;
 	h264->height = height;
+	/* 尺寸变了,在途帧的 rects 坐标作废 */
+	h264_lookahead_reset(h264);
 	return TRUE;
 }
 
@@ -644,6 +786,10 @@ H264_CONTEXT* h264_context_new(BOOL Compressor)
 	if (h264)
 	{
 		h264->Compressor = Compressor;
+
+		/* 领先一帧的两个 rect 缓冲:初始必须指向不同的缓冲,且之后永远成对轮换 */
+		h264->pendingRects = h264->rectBuf[0];
+		h264->convertedRects = h264->rectBuf[1];
 
 		if (Compressor)
 		{

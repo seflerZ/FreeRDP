@@ -27,4 +27,11 @@
 FREERDP_LOCAL BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width,
                                         UINT32 height);
 
+/* 清空领先一帧的在途状态(尺寸变化/解码器重建时调用) */
+FREERDP_LOCAL void h264_lookahead_reset(H264_CONTEXT* h264);
+
+/* 把在途的那帧吐出来并转换(只取不喂)。返回是否真的转换出了一帧。 */
+FREERDP_LOCAL BOOL avc420_flush_pending(H264_CONTEXT* h264, BYTE* pDstData, DWORD DstFormat,
+                                        UINT32 nDstStep, UINT32 nDstWidth, UINT32 nDstHeight);
+
 #endif /* FREERDP_LIB_CODEC_H264_H */

@@ -68,6 +68,12 @@ extern "C"
 	                                               pcRdpgfxUpdateSurfaceArea update);
 	FREERDP_API void gdi_graphics_pipeline_uninit(rdpGdi* gdi, RdpgfxClientContext* gfx);
 
+	/* H.264 解码领先一帧的尾帧补吐(见 libfreerdp/codec/h264.c 的 avc420_flush_pending):
+	   最后收到的那帧没有下一帧来触发转换,客户端主循环需要主动把它吐出来,否则画面会
+	   一直停在倒数第二帧。frame_pending 用来决定要不要把等待超时改短。 */
+	FREERDP_API BOOL gdi_gfx_frame_pending(RdpgfxClientContext* context);
+	FREERDP_API UINT gdi_gfx_flush_frame(RdpgfxClientContext* context);
+
 #ifdef __cplusplus
 }
 #endif
