@@ -222,15 +222,23 @@ fail:
 		static UINT64 gn = 0;
 		static double gBlit = 0, gPaint = 0;
 		static UINT64 gPx = 0;
+		static double gBlitMax = 0, gPaintMax = 0;
 
 		gn++;
 		gBlit += t1 - t0;
 		gPaint += t2 - t1;
 		gPx += px;
+		/* 记最大值:paint 是 JNI 进 Java,平均 1.5ms 但 Java 侧偶尔卡(UI 线程忙/GC)
+		   会让会话线程一起卡住,那就是"微跳"的来源。blit/paintmax 都不大才轮到
+		   怀疑服务端。 */
+		if ((t1 - t0) > gBlitMax)
+			gBlitMax = t1 - t0;
+		if ((t2 - t1) > gPaintMax)
+			gPaintMax = t2 - t1;
 		if ((gn % 50) == 0)
-			mc_log("GFX n=%llu blit=%.0fus paint=%.0fus px=%.0fK rects=%u",
-			       (unsigned long long)gn, gBlit / gn, gPaint / gn, (double)gPx / gn / 1000.0,
-			       nbRects);
+			mc_log("GFX n=%llu blit=%.0fus paint=%.0fus blitmax=%.0fus paintmax=%.0fus px=%.0fK rects=%u",
+			       (unsigned long long)gn, gBlit / gn, gPaint / gn, gBlitMax, gPaintMax,
+			       (double)gPx / gn / 1000.0, nbRects);
 	}
 #endif
 
