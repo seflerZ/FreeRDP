@@ -33,55 +33,9 @@
 #include <freerdp/log.h>
 
 #include "h264.h"
+#include "../mc_probe.h"
+
 #define TAG FREERDP_TAG("codec")
-
-/* ---- 临时打点:产线调试用,与 gfx.c 写同一个文件,单位统一微秒(标签带 us) ---- */
-#include <stdarg.h>
-#include <stdio.h>
-#include <sys/stat.h>
-#include <time.h>
-
-static double mc_now_us(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
-}
-
-/* 本线程真正吃了多少 CPU(不含被调度出去的墙钟时间)。和上面的墙钟一比,就能分出
-   "算得慢" 还是 "被抢占/抢带宽"。 */
-static double mc_now_cpu_us(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
-	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
-}
-
-static void mc_log(const char* fmt, ...)
-{
-	FILE* f;
-	va_list ap;
-	static const char* paths[2] = {"/data/data/com.qihua.rmt/files/mctime.log",
-	                               "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
-	int i;
-
-	(void)mkdir("/data/data/com.qihua.rmt/files", 0770);
-	(void)mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
-	for (i = 0; i < 2; i++)
-	{
-		f = fopen(paths[i], "a");
-		if (!f)
-			continue;
-		va_start(ap, fmt);
-		vfprintf(f, fmt, ap);
-		va_end(ap);
-		fputc('\n', f);
-		fclose(f);
-		return;
-	}
-}
 
 static BOOL avc444_ensure_buffer(H264_CONTEXT* h264, DWORD nDstHeight);
 
@@ -151,8 +105,10 @@ static BOOL avc_yuv_to_rgb(H264_CONTEXT* h264, const RECTANGLE_16* regionRects,
 	INT32 width, height;
 	const BYTE* pYUVPoint[3];
 	primitives_t* prims = primitives_get();
+#if MC_PROBE
 	const double w0 = mc_now_us();
 	const double c0 = mc_now_cpu_us();
+#endif
 
 	for (x = 0; x < numRegionRects; x++)
 	{
@@ -215,6 +171,7 @@ static BOOL avc_yuv_to_rgb(H264_CONTEXT* h264, const RECTANGLE_16* regionRects,
 	   ratio 接近 1 ⇒ 纯算力问题;明显大于 1 ⇒ 相当一部分时间是被调度出去/抢内存带宽
 	   (流水线之后硬解在同时干活,这正是新引入的竞争)。
 	   generic=1 ⇒ AUTODETECT 选的还是标量实现,NEON 没接上。 */
+#if MC_PROBE
 	{
 		static UINT64 yn = 0;
 		static double yWall = 0, yCpu = 0;
@@ -229,6 +186,7 @@ static BOOL avc_yuv_to_rgb(H264_CONTEXT* h264, const RECTANGLE_16* regionRects,
 			       (prims->YUV420ToRGB_8u_P3AC4R ==
 			        primitives_get_generic()->YUV420ToRGB_8u_P3AC4R) ? 1 : 0);
 	}
+#endif
 
 	return TRUE;
 }
@@ -318,7 +276,9 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
                         RECTANGLE_16* regionRects, UINT32 numRegionRects)
 {
 	int status;
+#if MC_PROBE
 	double t0, t1, t2;
+#endif
 
 	if (!h264)
 		return -1001;
@@ -336,9 +296,9 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	h264->lookahead =
 	    (h264->subsystem->name != NULL) && (strcmp(h264->subsystem->name, "MediaCodec") == 0);
 
-	t0 = mc_now_us();
+	MC_MARK(t0);
 	status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
-	t1 = mc_now_us();
+	MC_MARK(t1);
 
 	h264->convertedNumRects = 0;
 
@@ -392,11 +352,12 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	                         pDstData, DstFormat, FALSE))
 		return -1002;
 
-	t2 = mc_now_us();
+	MC_MARK(t2);
 
 	/* period = 相邻两次解码入口的间隔,即整帧墙钟(含等网络/解析/前面所有阶段)。
 	   判据:period ≈ decomp+yuv+gfx ⇒ 客户端算力受限;period 明显更大 ⇒ 主要卡在等服务端。
 	   只在间隔 <200ms 时累加,避免拖一下停一下把空闲时间算进平均。 */
+#if MC_PROBE
 	{
 		static UINT64 n = 0, nPeriod = 0;
 		static double prevT0 = 0, accPeriod = 0, accDec = 0, accYuv = 0, accOwn = 0;
@@ -422,6 +383,7 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 			       (unsigned long long)n, nPeriod ? accPeriod / (double)nPeriod : 0.0, accDec / n,
 			       accYuv / n, accOwn / n);
 	}
+#endif
 
 	return 1;
 }

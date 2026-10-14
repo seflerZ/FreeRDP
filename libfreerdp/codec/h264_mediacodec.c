@@ -73,43 +73,7 @@
 #define MC_HAVE_NEON 1
 #endif
 
-/* ---- 临时打点:与 h264.c / gfx.c 写同一个文件,单位统一微秒(标签带 us) ---- */
-#include <stdarg.h>
-#include <stdio.h>
-#include <sys/stat.h>
-#include <time.h>
-
-static double mc_now_us(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
-}
-
-static void mc_log(const char* fmt, ...)
-{
-	FILE* f;
-	va_list ap;
-	static const char* paths[2] = {"/data/data/com.qihua.rmt/files/mctime.log",
-	                               "/sdcard/Android/data/com.qihua.rmt/files/mctime.log"};
-	int i;
-
-	(void)mkdir("/data/data/com.qihua.rmt/files", 0770);
-	(void)mkdir("/sdcard/Android/data/com.qihua.rmt/files", 0770);
-	for (i = 0; i < 2; i++)
-	{
-		f = fopen(paths[i], "a");
-		if (!f)
-			continue;
-		va_start(ap, fmt);
-		vfprintf(f, fmt, ap);
-		va_end(ap);
-		fputc('\n', f);
-		fclose(f);
-		return;
-	}
-}
+#include "../mc_probe.h"
 
 /* OMX 颜色格式值(NDK 未导出这些常量,手写) */
 enum
@@ -817,6 +781,9 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 	int rc;
 	BOOL produced = FALSE;
 	const BOOL drainOnly = (SrcSize == 0);
+#if MC_PROBE
+	double t0, t1, t2;
+#endif
 
 	WINPR_ASSERT(h264);
 
@@ -832,9 +799,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 
 	if (h264->lookahead)
 	{
-		double t0, t1, t2;
-
-		t0 = mc_now_us();
+		MC_MARK(t0);
 
 		/* 先取上一帧:它在上一次调用里就喂进去了,这中间已经过了十几毫秒的
 		   YUV→RGB/blit/paint,早解完了,所以这里基本不阻塞。
@@ -848,7 +813,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				h264->queuedAUs--;
 		}
 
-		t1 = mc_now_us();
+		MC_MARK(t1);
 
 		/* 再喂本帧:解码器开始干活,它的耗时与下一次调用里的 CPU 工作重叠 */
 		if (!drainOnly)
@@ -858,10 +823,11 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 			h264->queuedAUs++;
 		}
 
-		t2 = mc_now_us();
+		MC_MARK(t2);
 
 		/* drain = 取上一帧(drainOnly 时含 flush 的短超时等待);feed = 喂本帧。
 		   单位微秒,每 50 帧一行。 */
+#if MC_PROBE
 		{
 			static UINT64 mn = 0;
 			static double mDrain = 0, mFeed = 0, mDmax = 0;
@@ -875,24 +841,24 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				mc_log("MCDEC n=%llu drain=%.0fus feed=%.0fus drainmax=%.0fus queued=%u",
 				       (unsigned long long)mn, mDrain / mn, mFeed / mn, mDmax, h264->queuedAUs);
 		}
+#endif
 
 		return produced ? 1 : 2;
 	}
 
 	/* 旧路径:feed-then-dequeue。非领先一帧的场景(如 AVC444 的同帧两次解码)走这里。 */
 	{
-		double t0, t1, t2;
-
-		t0 = mc_now_us();
+		MC_MARK(t0);
 		if (!mediacodec_feed(h264, sys, pSrcData, SrcSize))
 			return -1;
-		t1 = mc_now_us();
+		MC_MARK(t1);
 
 		rc = mediacodec_drain(h264, sys, FALSE, &produced);
-		t2 = mc_now_us();
+		MC_MARK(t2);
 		if (rc < 0)
 			return -1;
 
+#if MC_PROBE
 		{
 			static UINT64 mn = 0;
 			static double mFeed = 0, mWait = 0, mWmax = 0;
@@ -906,6 +872,7 @@ static int mediacodec_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 				mc_log("MCDEC(fifo) n=%llu feed=%.0fus wait=%.0fus waitmax=%.0fus",
 				       (unsigned long long)mn, mFeed / mn, mWait / mn, mWmax);
 		}
+#endif
 
 		return produced ? 1 : 0;
 	}
