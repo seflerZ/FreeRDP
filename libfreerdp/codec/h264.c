@@ -49,6 +49,16 @@ static double mc_now_us(void)
 	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
 }
 
+/* 本线程真正吃了多少 CPU(不含被调度出去的墙钟时间)。和上面的墙钟一比,就能分出
+   "算得慢" 还是 "被抢占/抢带宽"。 */
+static double mc_now_cpu_us(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+	return (double)ts.tv_sec * 1e6 + (double)ts.tv_nsec / 1e3;
+}
+
 static void mc_log(const char* fmt, ...)
 {
 	FILE* f;
@@ -141,6 +151,8 @@ static BOOL avc_yuv_to_rgb(H264_CONTEXT* h264, const RECTANGLE_16* regionRects,
 	INT32 width, height;
 	const BYTE* pYUVPoint[3];
 	primitives_t* prims = primitives_get();
+	const double w0 = mc_now_us();
+	const double c0 = mc_now_cpu_us();
 
 	for (x = 0; x < numRegionRects; x++)
 	{
@@ -197,6 +209,25 @@ static BOOL avc_yuv_to_rgb(H264_CONTEXT* h264, const RECTANGLE_16* regionRects,
 			                                 &roi) != PRIMITIVES_SUCCESS)
 				return FALSE;
 		}
+	}
+
+	/* wall = YUV→RGB 段的墙钟;cpu = 其中本线程真正吃掉的 CPU。
+	   ratio 接近 1 ⇒ 纯算力问题;明显大于 1 ⇒ 相当一部分时间是被调度出去/抢内存带宽
+	   (流水线之后硬解在同时干活,这正是新引入的竞争)。
+	   generic=1 ⇒ AUTODETECT 选的还是标量实现,NEON 没接上。 */
+	{
+		static UINT64 yn = 0;
+		static double yWall = 0, yCpu = 0;
+
+		yn++;
+		yWall += mc_now_us() - w0;
+		yCpu += mc_now_cpu_us() - c0;
+		if ((yn % 50) == 0)
+			mc_log("YUV n=%llu wall=%.0fus cpu=%.0fus ratio=%.2f generic=%d",
+			       (unsigned long long)yn, yWall / yn, yCpu / yn,
+			       (yCpu > 0) ? (yWall / yCpu) : 0.0,
+			       (prims->YUV420ToRGB_8u_P3AC4R ==
+			        primitives_get_generic()->YUV420ToRGB_8u_P3AC4R) ? 1 : 0);
 	}
 
 	return TRUE;
