@@ -27,7 +27,7 @@
 #ifndef FREERDP_MC_PROBE_H
 #define FREERDP_MC_PROBE_H
 
-#define MC_PROBE 0
+#define MC_PROBE 1
 
 #if MC_PROBE
 
