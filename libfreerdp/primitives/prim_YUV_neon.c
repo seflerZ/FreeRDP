@@ -20,6 +20,10 @@
  * limitations under the License.
  */
 
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* cpu_set_t / pthread_setaffinity_np */
+#endif
+
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
@@ -36,6 +40,11 @@
 #endif
 
 #include <arm_neon.h>
+
+#include <pthread.h>
+#include <sched.h>
+#include <stdio.h>
+#include <unistd.h>
 
 static primitives_t* generic = NULL;
 
@@ -248,6 +257,244 @@ static INLINE pstatus_t neon_YUV420ToX(const BYTE* const pSrc[3], const UINT32 s
 	return PRIMITIVES_SUCCESS;
 }
 
+/* ---- 分块并行 ----
+   YUV→RGB 是单帧最重的纯 CPU 段(1080p 实测 ~6.4ms,吃满一核)。这里用常驻
+   worker + 原子取块:每 32 行的块谁空谁领,主线程也算一个 worker。异构核
+   (A5xx/A7xx/X3) 上按固定行带切会被最慢的带拖死,取块式天然自平衡。块起点
+   都是 32 的倍数 ⇒ 必为偶数行,满足 YUV420 的 U/V 每两行共享。参数只在一帧
+   内有效:主线程等 pending 归零才返回,worker 读参不需要额外加锁。 */
+#define YUV_PAR_WORKERS 3
+#define YUV_PAR_MIN_HEIGHT 192 /* 低于此高度并行不划算 */
+#define YUV_PAR_CHUNK_ROWS 32
+
+typedef struct
+{
+	pthread_mutex_t mu;
+	pthread_cond_t work_cv;
+	pthread_cond_t done_cv;
+	pthread_t workers[YUV_PAR_WORKERS];
+	int started;
+	unsigned seq;
+	int pending;
+	int busy;
+
+	const BYTE* src[3];
+	UINT32 srcStep[3];
+	BYTE* dst;
+	UINT32 dstStep;
+	UINT32 width;
+	UINT32 rows;
+	UINT32 nextRow;
+	uint8_t rPos, gPos, bPos, aPos;
+	int pinCpu[YUV_PAR_WORKERS];
+} yuv_par_t;
+
+static yuv_par_t g_yuv_par = {
+	PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, PTHREAD_COND_INITIALIZER,
+	{ 0 }, 0, 0, 0, 0, { 0 }, { 0 }, NULL, 0, 0, 0, 0, 0, 0, 0, 0, { -1, -1, -1 }
+};
+
+static void yuv_par_chunk(yuv_par_t* p, UINT32 top, UINT32 height)
+{
+	const BYTE* src[3];
+	UINT32 step[3];
+	prim_size_t roi;
+
+	src[0] = p->src[0] + (size_t)top * p->srcStep[0];
+	src[1] = p->src[1] + (size_t)(top / 2) * p->srcStep[1];
+	src[2] = p->src[2] + (size_t)(top / 2) * p->srcStep[2];
+	step[0] = p->srcStep[0];
+	step[1] = p->srcStep[1];
+	step[2] = p->srcStep[2];
+	roi.width = p->width;
+	roi.height = height;
+
+	neon_YUV420ToX(src, step, p->dst + (size_t)top * p->dstStep, p->dstStep, &roi, p->rPos,
+	               p->gPos, p->bPos, p->aPos);
+}
+
+static void yuv_par_run(yuv_par_t* p)
+{
+	for (;;)
+	{
+		const UINT32 top = __atomic_fetch_add(&p->nextRow, YUV_PAR_CHUNK_ROWS, __ATOMIC_RELAXED);
+		UINT32 height;
+
+		if (top >= p->rows)
+			break;
+		height = p->rows - top;
+		if (height > YUV_PAR_CHUNK_ROWS)
+			height = YUV_PAR_CHUNK_ROWS;
+		yuv_par_chunk(p, top, height);
+	}
+}
+
+static void* yuv_par_worker(void* arg)
+{
+	const int idx = (int)(intptr_t)arg;
+	unsigned seen = 0;
+	char name[16];
+
+	snprintf(name, sizeof(name), "yuv-par%d", idx);
+	pthread_setname_np(pthread_self(), name);
+
+	/* bionic 没有 pthread_setaffinity_np,在自己的线程里用 sched_setaffinity */
+	if (g_yuv_par.pinCpu[idx] >= 0)
+	{
+		cpu_set_t set;
+
+		CPU_ZERO(&set);
+		CPU_SET(g_yuv_par.pinCpu[idx], &set);
+		sched_setaffinity(0, sizeof(set), &set);
+	}
+
+	pthread_mutex_lock(&g_yuv_par.mu);
+	for (;;)
+	{
+		while (g_yuv_par.seq == seen)
+			pthread_cond_wait(&g_yuv_par.work_cv, &g_yuv_par.mu);
+
+		seen = g_yuv_par.seq;
+		pthread_mutex_unlock(&g_yuv_par.mu);
+		yuv_par_run(&g_yuv_par);
+		pthread_mutex_lock(&g_yuv_par.mu);
+		if (--g_yuv_par.pending == 0)
+			pthread_cond_signal(&g_yuv_par.done_cv);
+	}
+	pthread_mutex_unlock(&g_yuv_par.mu);
+	return NULL;
+}
+
+/* 按 cpuinfo_max_freq 找出最快的几颗核。Android 上省电调度很容易把新线程
+   丢到 A5xx 小核,一条带就能拖慢整帧;把 worker 绑到大核把方差压下去。
+   读不到频点(部分内核/容器)就返回 0,退回不绑核。 */
+static int yuv_par_big_cpus(int* cpus, int max)
+{
+	long freq[32];
+	int n = 0;
+	int ncpu = (int)sysconf(_SC_NPROCESSORS_CONF);
+	int i, j;
+
+	if (ncpu <= 0)
+		return 0;
+	if (ncpu > (int)(sizeof(freq) / sizeof(freq[0])))
+		ncpu = (int)(sizeof(freq) / sizeof(freq[0]));
+
+	for (i = 0; i < ncpu; i++)
+	{
+		char path[96];
+		char buf[32];
+		FILE* f;
+
+		snprintf(path, sizeof(path), "/sys/devices/system/cpu/cpu%d/cpufreq/cpuinfo_max_freq", i);
+		f = fopen(path, "r");
+		if (!f)
+			continue;
+		if (!fgets(buf, sizeof(buf), f))
+		{
+			fclose(f);
+			continue;
+		}
+		fclose(f);
+		freq[n] = strtol(buf, NULL, 10);
+		cpus[n] = i;
+		n++;
+	}
+
+	if (n < 2)
+		return 0;
+
+	/* 按频点降序排(核数很少,插入排序足够) */
+	for (i = 1; i < n; i++)
+	{
+		const long f = freq[i];
+		const int c = cpus[i];
+
+		for (j = i; (j > 0) && (freq[j - 1] < f); j--)
+		{
+			freq[j] = freq[j - 1];
+			cpus[j] = cpus[j - 1];
+		}
+		freq[j] = f;
+		cpus[j] = c;
+	}
+
+	/* 同频核都算"大核",只取最快的 max 颗 */
+	return (n < max) ? n : max;
+}
+
+static void yuv_par_start(void)
+{
+	int i;
+	int cpus[YUV_PAR_WORKERS + 1];
+	const int n = yuv_par_big_cpus(cpus, YUV_PAR_WORKERS + 1);
+
+	pthread_mutex_lock(&g_yuv_par.mu);
+	for (i = 0; i < YUV_PAR_WORKERS; i++)
+	{
+		/* cpus[0] 留给主线程(它也领一条带),worker 从第二快的核开始绑 */
+		g_yuv_par.pinCpu[i] = (i + 1 < n) ? cpus[i + 1] : -1;
+		if (pthread_create(&g_yuv_par.workers[i], NULL, yuv_par_worker, (void*)(intptr_t)i) == 0)
+			g_yuv_par.started++;
+	}
+	pthread_mutex_unlock(&g_yuv_par.mu);
+}
+
+static pstatus_t neon_YUV420ToX_par(const BYTE* const pSrc[3], const UINT32 srcStep[3],
+                                    BYTE* pDst, UINT32 dstStep, const prim_size_t* roi,
+                                    const uint8_t rPos, const uint8_t gPos, const uint8_t bPos,
+                                    const uint8_t aPos)
+{
+	static pthread_once_t once = PTHREAD_ONCE_INIT;
+	int workers;
+
+	if (roi->height < YUV_PAR_MIN_HEIGHT)
+		return neon_YUV420ToX(pSrc, srcStep, pDst, dstStep, roi, rPos, gPos, bPos, aPos);
+
+	pthread_once(&once, yuv_par_start);
+
+	pthread_mutex_lock(&g_yuv_par.mu);
+	workers = g_yuv_par.started;
+	/* video 通道等其它调用者可能在另一线程同时进来;池是单帧独占的,
+	   这种罕见并发直接退回单线程,别把参数搅在一起。 */
+	if ((workers <= 0) || g_yuv_par.busy)
+	{
+		pthread_mutex_unlock(&g_yuv_par.mu);
+		return neon_YUV420ToX(pSrc, srcStep, pDst, dstStep, roi, rPos, gPos, bPos, aPos);
+	}
+	g_yuv_par.busy = 1;
+
+	g_yuv_par.src[0] = pSrc[0];
+	g_yuv_par.src[1] = pSrc[1];
+	g_yuv_par.src[2] = pSrc[2];
+	g_yuv_par.srcStep[0] = srcStep[0];
+	g_yuv_par.srcStep[1] = srcStep[1];
+	g_yuv_par.srcStep[2] = srcStep[2];
+	g_yuv_par.dst = pDst;
+	g_yuv_par.dstStep = dstStep;
+	g_yuv_par.width = roi->width;
+	g_yuv_par.rows = roi->height;
+	g_yuv_par.nextRow = 0;
+	g_yuv_par.rPos = rPos;
+	g_yuv_par.gPos = gPos;
+	g_yuv_par.bPos = bPos;
+	g_yuv_par.aPos = aPos;
+	g_yuv_par.pending = workers;
+	g_yuv_par.seq++;
+	pthread_cond_broadcast(&g_yuv_par.work_cv);
+	pthread_mutex_unlock(&g_yuv_par.mu);
+
+	yuv_par_run(&g_yuv_par);
+
+	pthread_mutex_lock(&g_yuv_par.mu);
+	while (g_yuv_par.pending > 0)
+		pthread_cond_wait(&g_yuv_par.done_cv, &g_yuv_par.mu);
+	g_yuv_par.busy = 0;
+	pthread_mutex_unlock(&g_yuv_par.mu);
+
+	return PRIMITIVES_SUCCESS;
+}
+
 static pstatus_t neon_YUV420ToRGB_8u_P3AC4R(const BYTE* const pSrc[3], const UINT32 srcStep[3],
                                             BYTE* pDst, UINT32 dstStep, UINT32 DstFormat,
                                             const prim_size_t* roi)
@@ -256,19 +503,19 @@ static pstatus_t neon_YUV420ToRGB_8u_P3AC4R(const BYTE* const pSrc[3], const UIN
 	{
 		case PIXEL_FORMAT_BGRA32:
 		case PIXEL_FORMAT_BGRX32:
-			return neon_YUV420ToX(pSrc, srcStep, pDst, dstStep, roi, 2, 1, 0, 3);
+			return neon_YUV420ToX_par(pSrc, srcStep, pDst, dstStep, roi, 2, 1, 0, 3);
 
 		case PIXEL_FORMAT_RGBA32:
 		case PIXEL_FORMAT_RGBX32:
-			return neon_YUV420ToX(pSrc, srcStep, pDst, dstStep, roi, 0, 1, 2, 3);
+			return neon_YUV420ToX_par(pSrc, srcStep, pDst, dstStep, roi, 0, 1, 2, 3);
 
 		case PIXEL_FORMAT_ARGB32:
 		case PIXEL_FORMAT_XRGB32:
-			return neon_YUV420ToX(pSrc, srcStep, pDst, dstStep, roi, 1, 2, 3, 0);
+			return neon_YUV420ToX_par(pSrc, srcStep, pDst, dstStep, roi, 1, 2, 3, 0);
 
 		case PIXEL_FORMAT_ABGR32:
 		case PIXEL_FORMAT_XBGR32:
-			return neon_YUV420ToX(pSrc, srcStep, pDst, dstStep, roi, 3, 2, 1, 0);
+			return neon_YUV420ToX_par(pSrc, srcStep, pDst, dstStep, roi, 3, 2, 1, 0);
 
 		default:
 			return generic->YUV420ToRGB_8u_P3AC4R(pSrc, srcStep, pDst, dstStep, DstFormat, roi);
