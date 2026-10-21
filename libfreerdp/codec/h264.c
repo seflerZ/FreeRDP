@@ -37,6 +37,12 @@
 
 #define TAG FREERDP_TAG("codec")
 
+/* 领先一帧:开启时先吐上一帧再喂本帧,把硬解等待藏到渲染后面,代价是固定
+   多一帧延迟(60fps 下 ~16.7ms)。0 = 低延迟,每帧多等一次硬解。 */
+#ifndef AVC420_LOOKAHEAD
+#define AVC420_LOOKAHEAD 1
+#endif
+
 static BOOL avc444_ensure_buffer(H264_CONTEXT* h264, DWORD nDstHeight);
 
 BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width, UINT32 height)
@@ -294,8 +300,8 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	}
 
 	/* 只有 MediaCodec 后端实现了 dequeue-then-feed 的领先一帧语义 */
-	h264->lookahead =
-	    (h264->subsystem->name != NULL) && (strcmp(h264->subsystem->name, "MediaCodec") == 0);
+	h264->lookahead = AVC420_LOOKAHEAD && (h264->subsystem->name != NULL) &&
+	                  (strcmp(h264->subsystem->name, "MediaCodec") == 0);
 
 	MC_MARK(t0);
 	status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
