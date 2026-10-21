@@ -26,6 +26,10 @@
 #include <winpr/crt.h>
 #include <winpr/stream.h>
 
+#if defined(__linux__) || defined(__ANDROID__)
+#include <sys/resource.h>
+#endif
+
 #include "drdynvc_main.h"
 
 #define TAG CHANNELS_TAG("drdynvc.client")
@@ -1362,6 +1366,14 @@ static DWORD WINAPI drdynvc_virtual_channel_client_thread(LPVOID arg)
 		ExitThread((DWORD)CHANNEL_RC_BAD_CHANNEL_HANDLE);
 		return CHANNEL_RC_BAD_CHANNEL_HANDLE;
 	}
+
+#if defined(__linux__) || defined(__ANDROID__)
+	/* This thread carries the GFX/H.264 decode and the JNI frame callback.
+	 * At nice 0 it gets preempted by the draw thread and the frame period
+	 * jitters. Keep it below the audio thread (-10) but above the default. */
+	if (setpriority(PRIO_PROCESS, 0, -4) != 0)
+		WLog_Print(drdynvc->log, WLOG_WARN, "setpriority failed");
+#endif
 
 	while (1)
 	{

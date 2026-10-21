@@ -63,6 +63,22 @@ extern "C"
 
 		unsigned int queuesize;
 		wQueue* queue;
+
+		/* Buffers whose playback finished. The OpenSL callback (real-time thread)
+		 * must not call free(): the malloc lock inside a RT thread is a classic
+		 * source of single-sample clicks. The callback pushes the pointer here
+		 * (lock-free SPSC ring) and the producer thread reclaims it. */
+		void* trash[32];
+		unsigned int trashHead; /* consumer: producer thread */
+		unsigned int trashTail; /* producer: OpenSL callback */
+
+		/* Size in bytes of every in-flight buffer, in enqueue order. */
+		unsigned int pendingSizes[32];
+		unsigned int sizeHead; /* consumer: OpenSL callback */
+		unsigned int sizeTail; /* producer: producer thread */
+
+		/* Bytes currently queued for playback (written minus played back). */
+		unsigned int bytesInFlight;
 	} OPENSL_STREAM;
 
 	/*
@@ -78,6 +94,10 @@ extern "C"
 	Write a buffer to the OpenSL stream *p, of size samples. Returns the number of samples written.
 	*/
 	FREERDP_LOCAL int android_AudioOut(OPENSL_STREAM* p, const short* buffer, int size);
+	/*
+	 * Milliseconds of audio currently queued for playback.
+	 */
+	FREERDP_LOCAL unsigned int android_GetOutputLatencyMs(OPENSL_STREAM* p);
 	/*
 	 * Set the volume input level.
 	 */

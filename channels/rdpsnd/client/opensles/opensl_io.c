@@ -35,6 +35,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define CONVMYFLT (1. / 32768.)
 
 static void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void* context);
+static void opensl_reclaim_trash(OPENSL_STREAM* p);
 
 // creates the OpenSL ES audio engine
 static SLresult openSLCreateEngine(OPENSL_STREAM* p)
@@ -316,6 +317,8 @@ void android_CloseAudioDevice(OPENSL_STREAM* p)
 	if (p->queue)
 		Queue_Free(p->queue);
 
+	opensl_reclaim_trash(p);
+
 	free(p);
 }
 
@@ -326,7 +329,69 @@ static void bqPlayerCallback(SLAndroidSimpleBufferQueueItf bq, void* context)
 	assert(p);
 	assert(p->queue);
 	void* data = Queue_Dequeue(p->queue);
-	free(data);
+
+	/* Hand the buffer over to the producer thread instead of freeing it here:
+	 * free() takes the allocator lock, and doing that on the OpenSL real-time
+	 * thread is a well known source of clicks/pops. */
+	if (data)
+	{
+		unsigned int tail = __atomic_load_n(&p->trashTail, __ATOMIC_ACQUIRE);
+		unsigned int head = __atomic_load_n(&p->trashHead, __ATOMIC_ACQUIRE);
+		unsigned int sizeHead = __atomic_load_n(&p->sizeHead, __ATOMIC_ACQUIRE);
+		unsigned int sizeTail = __atomic_load_n(&p->sizeTail, __ATOMIC_ACQUIRE);
+		unsigned int bytes = 0;
+
+		if (sizeHead != sizeTail)
+		{
+			bytes = p->pendingSizes[sizeHead % (sizeof(p->pendingSizes) / sizeof(p->pendingSizes[0]))];
+			__atomic_store_n(&p->sizeHead, sizeHead + 1, __ATOMIC_RELEASE);
+			__atomic_sub_fetch(&p->bytesInFlight, bytes, __ATOMIC_RELAXED);
+		}
+
+		if (tail - head < sizeof(p->trash) / sizeof(p->trash[0]))
+		{
+			p->trash[tail % (sizeof(p->trash) / sizeof(p->trash[0]))] = data;
+			__atomic_store_n(&p->trashTail, tail + 1, __ATOMIC_RELEASE);
+		}
+		else
+		{
+			/* Ring full - should not happen, the producer drains it on every write. */
+			free(data);
+		}
+	}
+}
+
+// reclaim the buffers whose playback finished
+static void opensl_reclaim_trash(OPENSL_STREAM* p)
+{
+	unsigned int head = __atomic_load_n(&p->trashHead, __ATOMIC_ACQUIRE);
+	unsigned int tail = __atomic_load_n(&p->trashTail, __ATOMIC_ACQUIRE);
+
+	while (head != tail)
+	{
+		void* data = p->trash[head % (sizeof(p->trash) / sizeof(p->trash[0]))];
+		__atomic_store_n(&p->trashHead, head + 1, __ATOMIC_RELEASE);
+		free(data);
+		head++;
+	}
+}
+
+// milliseconds of audio currently queued for playback
+unsigned int android_GetOutputLatencyMs(OPENSL_STREAM* p)
+{
+	unsigned int bytes;
+	unsigned int bytesPerSecond;
+
+	if (!p || !p->outchannels || !p->sr)
+		return 0;
+
+	bytes = __atomic_load_n(&p->bytesInFlight, __ATOMIC_RELAXED);
+	bytesPerSecond = p->sr * p->outchannels * 2; /* 16 bit samples */
+
+	if (bytesPerSecond == 0)
+		return 0;
+
+	return (unsigned int)((1000ULL * bytes) / bytesPerSecond);
 }
 
 // puts a buffer of size samples to the device
@@ -335,6 +400,8 @@ int android_AudioOut(OPENSL_STREAM* p, const short* buffer, int size)
 	assert(p);
 	assert(buffer);
 	assert(size > 0);
+
+	opensl_reclaim_trash(p);
 
 	/* Assure, that the queue is not full. */
 	if (p->queuesize <= Queue_Count(p->queue) &&
@@ -354,6 +421,18 @@ int android_AudioOut(OPENSL_STREAM* p, const short* buffer, int size)
 
 	memcpy(data, buffer, size * sizeof(short));
 	Queue_Enqueue(p->queue, data);
+
+	/* Remember the size so the playback callback can subtract it from the
+	 * in-flight byte count (used to report the real output latency). */
+	{
+		unsigned int bytes = (unsigned int)(size * sizeof(short));
+		unsigned int tail = __atomic_load_n(&p->sizeTail, __ATOMIC_ACQUIRE);
+
+		p->pendingSizes[tail % (sizeof(p->pendingSizes) / sizeof(p->pendingSizes[0]))] = bytes;
+		__atomic_store_n(&p->sizeTail, tail + 1, __ATOMIC_RELEASE);
+		__atomic_add_fetch(&p->bytesInFlight, bytes, __ATOMIC_RELAXED);
+	}
+
 	(*p->bqPlayerBufferQueue)->Enqueue(p->bqPlayerBufferQueue, data, sizeof(short) * size);
 	return size;
 }

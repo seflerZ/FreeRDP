@@ -29,6 +29,10 @@
 #ifndef _WIN32
 #include <sys/time.h>
 #include <signal.h>
+
+#if defined(__linux__) || defined(__ANDROID__)
+#include <sys/resource.h>
+#endif
 #endif
 
 #include <stdio.h>
@@ -1344,6 +1348,14 @@ static DWORD WINAPI play_thread(LPVOID arg)
 
 	if (!rdpsnd || !rdpsnd->queue)
 		return ERROR_INVALID_PARAMETER;
+
+#if defined(__linux__) || defined(__ANDROID__)
+	/* The audio playout thread runs at nice 0 by default, so it loses the CPU
+	 * to the video decode/draw threads and the OpenSL queue underruns.
+	 * Try to give it audio priority; failure is harmless. */
+	if (setpriority(PRIO_PROCESS, 0, -10) != 0)
+		WLog_WARN(TAG, "setpriority(audio) failed");
+#endif
 
 	while (TRUE)
 	{

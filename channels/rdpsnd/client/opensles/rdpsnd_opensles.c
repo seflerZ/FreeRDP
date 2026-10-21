@@ -43,6 +43,14 @@
 
 typedef struct rdpsnd_opensles_plugin rdpsndopenslesPlugin;
 
+/* Number of wave blocks kept queued in the OpenSL buffer queue.
+ * The old value was 20, which is ~460 ms of audio for a typical 4 KB block at
+ * 44.1 kHz stereo. rdpsnd_detect_overrun() compares the queued duration
+ * against "2 * block + negotiated latency", so a 20 block queue made the
+ * detector drop whole wave blocks over and over - audible dropouts.
+ * 4 blocks keeps the queued audio (~90 ms) inside that budget. */
+#define RDPSND_OPENSL_QUEUE_BLOCKS 4
+
 struct rdpsnd_opensles_plugin
 {
 	rdpsndDevicePlugin device;
@@ -106,7 +114,7 @@ static int rdpsnd_opensles_set_params(rdpsndopenslesPlugin* opensles)
 	if (opensles->stream)
 		android_CloseAudioDevice(opensles->stream);
 
-	opensles->stream = android_OpenAudioDevice(opensles->rate, opensles->channels, 20);
+	opensles->stream = android_OpenAudioDevice(opensles->rate, opensles->channels, RDPSND_OPENSL_QUEUE_BLOCKS);
 	return 0;
 }
 
@@ -144,7 +152,7 @@ static BOOL rdpsnd_opensles_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT*
 	if (rdpsnd_opensles_check_handle(opensles))
 		return TRUE;
 
-	opensles->stream = android_OpenAudioDevice(opensles->rate, opensles->channels, 20);
+	opensles->stream = android_OpenAudioDevice(opensles->rate, opensles->channels, RDPSND_OPENSL_QUEUE_BLOCKS);
 	assert(opensles->stream);
 
 	if (!opensles->stream)
@@ -278,7 +286,10 @@ static UINT rdpsnd_opensles_play(rdpsndDevicePlugin* device, const BYTE* data, s
 	if (ret < 0)
 		WLog_ERR(TAG, "android_AudioOut failed (%d)", ret);
 
-	return 10; /* TODO: Get real latencry in [ms] */
+	/* Report the real amount of audio we still have queued. The old hardcoded
+	 * 10 ms under-reported the render latency sent back to the server in the
+	 * WaveConfirm PDU. */
+	return android_GetOutputLatencyMs(opensles->stream);
 }
 
 static void rdpsnd_opensles_start(rdpsndDevicePlugin* device)

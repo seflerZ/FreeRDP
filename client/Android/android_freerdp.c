@@ -44,6 +44,10 @@
 #include <freerdp/settings.h>
 #include <freerdp/utils/signal.h>
 
+#if defined(__linux__) || defined(__ANDROID__)
+#include <sys/resource.h>
+#endif
+
 #include <android/bitmap.h>
 #include <android/log.h>
 
@@ -701,6 +705,14 @@ static DWORD WINAPI android_thread_func(LPVOID param)
 	DWORD status = ERROR_BAD_ARGUMENTS;
 	freerdp* instance = param;
 	WLog_DBG(TAG, "Start...");
+
+#if defined(__linux__) || defined(__ANDROID__)
+	/* The session thread dispatches every incoming PDU. At nice 0 it is
+	 * preempted by the draw thread, which delays both the frame callbacks and
+	 * the audio channel data. Stay below the audio thread (-10). */
+	if (setpriority(PRIO_PROCESS, 0, -4) != 0)
+		WLog_WARN(TAG, "setpriority failed");
+#endif
 
 	if (!instance || !instance->context)
 		goto fail;

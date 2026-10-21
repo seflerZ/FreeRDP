@@ -369,7 +369,10 @@ public class LibFreeRDP
 		args.add("/audio-mode:" + advanced.getRedirectSound());
 		if (advanced.getRedirectSound() == 0)
 		{
-			args.add("/sound:latency:85");
+			// Client side audio buffer budget in ms. rdpsnd_detect_overrun()
+			// drops whole wave blocks when the queued audio exceeds
+			// "2 * block + latency", so this must cover the OpenSL queue.
+			args.add("/sound:latency:200");
 		}
 
 		if (advanced.getRedirectMicrophone())
