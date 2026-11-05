@@ -143,6 +143,11 @@ public class LibFreeRDP
 
 	private static native boolean freerdp_send_client_display_update(long inst, int width, int height, int scaleFactor);
 
+	public static String getLastErrorString(long inst)
+	{
+		return freerdp_get_last_error_string(inst);
+	}
+
 	private static native String freerdp_get_last_error_string(long inst);
 
 	public static void setEventListener(EventListener l)
