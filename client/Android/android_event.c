@@ -30,52 +30,85 @@
 
 BOOL android_push_event(freerdp* inst, ANDROID_EVENT* event)
 {
-	androidContext* aCtx = (androidContext*)inst->context;
+	BOOL rc = FALSE;
+	ANDROID_EVENT_QUEUE* queue;
+	androidContext* aCtx;
 
-	if (aCtx->event_queue->count >= aCtx->event_queue->size)
+	if (!inst || !inst->context || !event)
+		return FALSE;
+
+	aCtx = (androidContext*)inst->context;
+	queue = aCtx->event_queue;
+
+	/* 断开后 Java 线程(比如惯性滚动)还可能再 push 一次 */
+	if (!queue)
+		return FALSE;
+
+	EnterCriticalSection(&queue->lock);
+
+	if (queue->count >= queue->size)
 	{
 		int new_size;
 		void* new_events;
-		new_size = aCtx->event_queue->size * 2;
-		new_events = realloc((void*)aCtx->event_queue->events, sizeof(ANDROID_EVENT*) * new_size);
+		new_size = queue->size * 2;
+		new_events = realloc((void*)queue->events, sizeof(ANDROID_EVENT*) * new_size);
 
-		if (!new_events)
-			return FALSE;
-
-		aCtx->event_queue->events = new_events;
-		aCtx->event_queue->size = new_size;
+		if (new_events)
+		{
+			queue->events = new_events;
+			queue->size = new_size;
+		}
 	}
 
-	aCtx->event_queue->events[(aCtx->event_queue->count)++] = event;
-	return SetEvent(aCtx->event_queue->isSet);
+	if (queue->count < queue->size)
+	{
+		queue->events[(queue->count)++] = event;
+		rc = TRUE;
+	}
+
+	LeaveCriticalSection(&queue->lock);
+
+	if (rc)
+		SetEvent(queue->isSet);
+
+	return rc;
 }
 
 static ANDROID_EVENT* android_peek_event(ANDROID_EVENT_QUEUE* queue)
 {
-	ANDROID_EVENT* event;
+	ANDROID_EVENT* event = NULL;
 
-	if (queue->count < 1)
+	if (!queue)
 		return NULL;
 
-	event = queue->events[0];
+	EnterCriticalSection(&queue->lock);
+	if (queue->count > 0)
+		event = queue->events[0];
+	LeaveCriticalSection(&queue->lock);
+
 	return event;
 }
 
 static ANDROID_EVENT* android_pop_event(ANDROID_EVENT_QUEUE* queue)
 {
 	int i;
-	ANDROID_EVENT* event;
+	ANDROID_EVENT* event = NULL;
 
-	if (queue->count < 1)
+	if (!queue)
 		return NULL;
 
-	event = queue->events[0];
-	(queue->count)--;
-
-	for (i = 0; i < queue->count; i++)
+	EnterCriticalSection(&queue->lock);
+	if (queue->count > 0)
 	{
-		queue->events[i] = queue->events[i + 1];
+		event = queue->events[0];
+		(queue->count)--;
+
+		for (i = 0; i < queue->count; i++)
+		{
+			queue->events[i] = queue->events[i + 1];
+		}
 	}
+	LeaveCriticalSection(&queue->lock);
 
 	return event;
 }
@@ -373,10 +406,12 @@ BOOL android_event_queue_init(freerdp* inst)
 
 	queue->size = 16;
 	queue->count = 0;
+	InitializeCriticalSection(&queue->lock);
 	queue->isSet = CreateEventA(NULL, TRUE, FALSE, NULL);
 
 	if (!queue->isSet)
 	{
+		DeleteCriticalSection(&queue->lock);
 		free(queue);
 		return FALSE;
 	}
@@ -387,6 +422,7 @@ BOOL android_event_queue_init(freerdp* inst)
 	{
 		WLog_ERR(TAG, "android_event_queue_init: memory allocation failed");
 		CloseHandle(queue->isSet);
+		DeleteCriticalSection(&queue->lock);
 		free(queue);
 		return FALSE;
 	}
@@ -408,6 +444,11 @@ void android_event_queue_uninit(freerdp* inst)
 
 	if (queue)
 	{
+		/* 先摘掉指针,迟到 push 会直接返回,不去碰正在释放的队列 */
+		aCtx->event_queue = NULL;
+
+		EnterCriticalSection(&queue->lock);
+
 		if (queue->isSet)
 		{
 			CloseHandle(queue->isSet);
@@ -421,6 +462,9 @@ void android_event_queue_uninit(freerdp* inst)
 			queue->size = 0;
 			queue->count = 0;
 		}
+
+		LeaveCriticalSection(&queue->lock);
+		DeleteCriticalSection(&queue->lock);
 
 		free(queue);
 	}

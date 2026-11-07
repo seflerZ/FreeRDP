@@ -13,6 +13,7 @@
 #define FREERDP_CLIENT_ANDROID_EVENT_H
 #include <freerdp/freerdp.h>
 #include <freerdp/api.h>
+#include <winpr/synch.h>
 
 #define EVENT_TYPE_KEY 1
 #define EVENT_TYPE_CURSOR 2
@@ -68,6 +69,8 @@ struct _ANDROID_EVENT_QUEUE
 	int count;
 	HANDLE isSet;
 	ANDROID_EVENT** events;
+	/* push 来自多个 Java 线程(UI / 惯性滚动),pop 在会话线程,必须串行化 */
+	CRITICAL_SECTION lock;
 };
 typedef struct _ANDROID_EVENT_QUEUE ANDROID_EVENT_QUEUE;
 
